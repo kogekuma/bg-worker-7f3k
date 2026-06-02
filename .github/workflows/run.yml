@@ -1,0 +1,45 @@
+name: Mobile Ichiban Scraper
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # 15分ごと
+  workflow_dispatch:           # 手動実行
+
+concurrency:
+  group: mobile-ichiban
+  cancel-in-progress: true
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scraper
+        run: python run.py
+
+      - name: Push to Scanner repo
+        env:
+          PAT: ${{ secrets.SCANNER_PAT }}
+        run: |
+          git clone https://kogekuma:$PAT@github.com/kogekuma/Scanner.git scanner_repo
+          cp mobile_ichiban.json scanner_repo/docs/data/mobile_ichiban.json
+          cd scanner_repo
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/data/mobile_ichiban.json
+          git diff --cached --quiet || \
+            git commit -m "chore: update mobile_ichiban data $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git push
