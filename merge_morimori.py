@@ -8,7 +8,7 @@ JST = timezone(timedelta(hours=9))
 merged = {}
 updated = ""
 
-for shard in range(5):
+for shard in range(10):
     filename = f"morimori_shard_{shard}.json"
     try:
         with open(filename, encoding="utf-8") as f:

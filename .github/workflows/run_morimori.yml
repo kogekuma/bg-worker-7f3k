@@ -13,10 +13,10 @@ jobs:
   scrape:
     strategy:
       matrix:
-        shard: [0, 1, 2, 3, 4]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
       fail-fast: false   # 1シャードが失敗しても他は継続
     runs-on: ubuntu-latest
-    timeout-minutes: 13
+    timeout-minutes: 14
 
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +29,7 @@ jobs:
       - run: pip install -r requirements.txt
 
       - name: Run morimori shard ${{ matrix.shard }}
-        run: python run_morimori.py --shard ${{ matrix.shard }} --total-shards 5
+        run: python run_morimori.py --shard ${{ matrix.shard }} --total-shards 10
 
       - name: Upload shard artifact
         uses: actions/upload-artifact@v4
