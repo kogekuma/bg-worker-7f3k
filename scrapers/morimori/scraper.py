@@ -34,6 +34,7 @@ class MorimoriScraper(BaseScraper):
             if any(o != c and o.startswith(c) for o in all_cats)
         }
         leaf_set = all_cats - parents
+        leaf_set.discard("99")  # 全商品集約カテゴリ（288ページ）は他と重複するためスキップ
         seen, result = set(), []
         for cat in re.findall(r"/category/([^/]+)/product/\d+", resp.text):
             if cat not in seen and cat in leaf_set:
