@@ -11,8 +11,12 @@ concurrency:
 
 jobs:
   scrape:
+    strategy:
+      matrix:
+        shard: [0, 1, 2, 3, 4]
+      fail-fast: false   # 1シャードが失敗しても他は継続
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 13
 
     steps:
       - uses: actions/checkout@v4
@@ -24,8 +28,36 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - name: Run morimori scraper
-        run: python run_morimori.py
+      - name: Run morimori shard ${{ matrix.shard }}
+        run: python run_morimori.py --shard ${{ matrix.shard }} --total-shards 5
+
+      - name: Upload shard artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: morimori-shard-${{ matrix.shard }}
+          path: morimori_shard_${{ matrix.shard }}.json
+          retention-days: 1
+
+  merge:
+    needs: scrape
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download all shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: morimori-shard-*
+          merge-multiple: true
+
+      - name: Merge shards
+        run: python merge_morimori.py
 
       - name: Push to Scanner repo
         env:
