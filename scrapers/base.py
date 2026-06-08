@@ -27,7 +27,10 @@ class BaseScraper(ABC):
         pass
 
     def get(self, url: str, **kwargs):
-        return self.session.get(url, headers=CHROME_HEADERS, timeout=15, **kwargs)
+        # timeout はサブクラスで上書き可能（デフォルト15秒）
+        kwargs.setdefault("timeout", 15)
+        return self.session.get(url, headers=CHROME_HEADERS, **kwargs)
 
     def post(self, url: str, **kwargs):
-        return self.session.post(url, headers=CHROME_HEADERS, timeout=15, **kwargs)
+        kwargs.setdefault("timeout", 15)
+        return self.session.post(url, headers=CHROME_HEADERS, **kwargs)
