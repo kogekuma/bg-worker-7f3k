@@ -10,15 +10,10 @@ snkrdunk.json に保存する。フロントエンドで日本語名のカギカ
   商品名に「シュリンクなし」「No shrink」等を含む商品をシュリンク無として除外する。
   isTradingCard=False の非トレカ商品も除外する。
   box_only=True のキーワードは名前に「box」「ボックス」を含まない商品を除外する。
-  carton_only=True のキーワードは名前に「carton」「カートン」を含まない商品を除外する。
 
 日本語名取得:
   og:title メタタグから取得し「の新品/中古フリマ(通販)｜スニダン」等のサフィックスを除去。
   既存の snkrdunk.json にキャッシュがある場合は再取得しない。
-
-カテゴリ分類:
-  各商品に category フィールド（"box"/"carton"/"other"）を付与する。
-  フロントエンドがBOXとカートンを分けて表示するために使用する。
 """
 
 import os
@@ -31,10 +26,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
-from scrapers.snkrdunk.config import (
-    API_URL, BASE_URL, SEARCH_TARGETS, MIN_PRICE,
-    BOX_KEYWORDS, CARTON_KEYWORDS,
-)
+from scrapers.snkrdunk.config import API_URL, BASE_URL, SEARCH_TARGETS, MIN_PRICE
 
 # シュリンクなし判定キーワード（大文字小文字を無視して照合）
 NO_SHRINK_KEYWORDS = [
@@ -45,6 +37,9 @@ NO_SHRINK_KEYWORDS = [
     "[no shrink]",
     "【シュリンクなし】",
 ]
+
+# BOX商品判定キーワード（box_only=True の場合に使用）
+BOX_KEYWORDS = ["box", "ボックス"]
 
 HEADERS = {
     "User-Agent": (
@@ -61,16 +56,6 @@ PER_PAGE        = 50
 JA_NAME_WORKERS = 8
 
 _OG_SUFFIX_RE = re.compile(r"\s*の新品.*$|\s*\|.*$")
-
-
-def _detect_category(name: str) -> str:
-    """商品名からカテゴリ（box/carton/other）を判定する。"""
-    name_lower = name.lower()
-    if any(k in name_lower for k in CARTON_KEYWORDS):
-        return "carton"
-    if any(k in name_lower for k in BOX_KEYWORDS):
-        return "box"
-    return "other"
 
 
 def _fetch_ja_name(product_id: int, session: requests.Session) -> str | None:
@@ -109,7 +94,7 @@ class SnkrdunkScraper:
         except Exception:
             return {}
 
-    def _fetch_keyword(self, keyword: str, box_only: bool = False, carton_only: bool = False) -> list:
+    def _fetch_keyword(self, keyword: str, box_only: bool) -> list:
         """1キーワード分の商品一覧を取得して返す。"""
         results = []
         seen_ids = set()
@@ -146,8 +131,6 @@ class SnkrdunkScraper:
                     continue
                 if box_only and not any(kw in name_lower for kw in BOX_KEYWORDS):
                     continue
-                if carton_only and not any(kw in name_lower for kw in CARTON_KEYWORDS):
-                    continue
 
                 price = p.get("minPrice")
                 if not price or price < MIN_PRICE:
@@ -159,12 +142,11 @@ class SnkrdunkScraper:
 
                 seen_ids.add(product_id)
                 results.append({
-                    "id":       product_id,
-                    "name":     name,
-                    "name_ja":  "",
-                    "price":    price,
-                    "url":      f"{BASE_URL}/apparels/{product_id}",
-                    "category": _detect_category(name),
+                    "id":      product_id,
+                    "name":    name,
+                    "name_ja": "",
+                    "price":   price,
+                    "url":     f"{BASE_URL}/apparels/{product_id}",
                 })
 
             total = (data.get("streetwearCount") or 0) + (data.get("sneakerCount") or 0)
@@ -182,21 +164,19 @@ class SnkrdunkScraper:
         seen_ids = set()
 
         for i, target in enumerate(SEARCH_TARGETS):
-            keyword     = target["keyword"]
-            box_only    = target.get("box_only", False)
-            carton_only = target.get("carton_only", False)
+            keyword  = target["keyword"]
+            box_only = target.get("box_only", False)
             # 2件目以降はレートリミット回避のため待機
             if i > 0:
                 print(f"[snkrdunk] レートリミット回避のため90秒待機...", flush=True)
                 time.sleep(90)
-            items = self._fetch_keyword(keyword, box_only, carton_only)
+            items = self._fetch_keyword(keyword, box_only)
             # 重複IDを除去（複数キーワードで同一商品が出る場合）
             for item in items:
                 if item["id"] not in seen_ids:
                     seen_ids.add(item["id"])
                     all_results.append(item)
-            suffix = "（カートン）" if carton_only else ""
-            print(f"[snkrdunk] {keyword}{suffix}: {len(items)} 件取得", flush=True)
+            print(f"[snkrdunk] {keyword}: {len(items)} 件取得", flush=True)
 
         print(f"[snkrdunk] 合計: {len(all_results)} 件（シュリンク有のみ）", flush=True)
 
