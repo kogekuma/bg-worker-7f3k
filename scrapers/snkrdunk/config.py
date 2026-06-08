@@ -6,14 +6,20 @@ BASE_URL  = "https://snkrdunk.com"
 API_URL   = "https://snkrdunk.com/en/v1/search"
 
 # シングルカード等の低価格品をBOX参考価格として取り込まないための最低価格フィルター
-# ポケモンカードBOXは最低でも数百円以上するため、それ以下は除外する
 MIN_PRICE = 500
 
-# 取得対象キーワードと BOX 絞り込みの設定
-# box_only=True の場合、商品名に「box」または「ボックス」を含むもののみ取得
-# 「ポケモンカードゲームMEGA」は英語商品名を持つMEGA世代拡張パック（アビスアイ等）のマッチングに必要
+# BOX商品判定キーワード（box_only=True の場合に使用）
+BOX_KEYWORDS    = ["box", "ボックス"]
+# カートン商品判定キーワード（carton_only=True の場合に使用）
+CARTON_KEYWORDS = ["carton", "カートン"]
+
+# 取得対象キーワードと絞り込みの設定
+# box_only=True   : 商品名に「box」または「ボックス」を含むもののみ
+# carton_only=True: 商品名に「carton」または「カートン」を含むもののみ
+# 「ポケモンカードゲームMEGA」は英語商品名を持つMEGA世代拡張パックのマッチングに必要
 SEARCH_TARGETS = [
-    {"keyword": "ポケモンカード",      "box_only": False},
-    {"keyword": "ポケモンカードゲームMEGA", "box_only": False},
-    {"keyword": "ワンピースカード",    "box_only": True},
+    {"keyword": "ポケモンカード",           "box_only": False},
+    {"keyword": "ポケモンカードゲームMEGA",  "box_only": False},
+    {"keyword": "ワンピースカード",          "box_only": True},
+    {"keyword": "ワンピースカード",          "carton_only": True},
 ]
