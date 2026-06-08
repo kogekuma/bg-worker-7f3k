@@ -1,0 +1,42 @@
+name: Snkrdunk Scraper
+
+on:
+  schedule:
+    - cron: "0 */2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: snkrdunk
+  cancel-in-progress: true
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Run snkrdunk scraper
+        run: python run_snkrdunk.py
+
+      - name: Push to Scanner repo
+        env:
+          PAT: ${{ secrets.SCANNER_PAT }}
+        run: |
+          git clone https://kogekuma:$PAT@github.com/kogekuma/Scanner.git scanner_repo
+          cp snkrdunk.json scanner_repo/docs/data/snkrdunk.json
+          cd scanner_repo
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/data/snkrdunk.json
+          git diff --cached --quiet || \
+            git commit -m "chore: update snkrdunk data $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git push
