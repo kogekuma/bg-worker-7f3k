@@ -114,7 +114,10 @@ class SnkrdunkScraper:
                 print(f"[snkrdunk] API 取得失敗 ({keyword} page={page}): {e}", flush=True)
                 break
 
-            products = data.get("streetwears", []) + data.get("sneakers", [])
+            sw = data.get("streetwears") or []
+            sn = data.get("sneakers") or []
+            print(f"[snkrdunk] {keyword} p={page}: sw={len(sw)} sn={len(sn)} total={data.get("streetwearCount",0)}", flush=True)
+            products = sw + sn
             if not products:
                 break
 
