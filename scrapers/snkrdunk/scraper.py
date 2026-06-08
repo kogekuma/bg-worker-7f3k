@@ -26,7 +26,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
-from scrapers.snkrdunk.config import API_URL, BASE_URL, SEARCH_TARGETS
+from scrapers.snkrdunk.config import API_URL, BASE_URL, SEARCH_TARGETS, MIN_PRICE
 
 # シュリンクなし判定キーワード（大文字小文字を無視して照合）
 NO_SHRINK_KEYWORDS = [
@@ -130,7 +130,7 @@ class SnkrdunkScraper:
                     continue
 
                 price = p.get("minPrice")
-                if not price or price <= 0:
+                if not price or price < MIN_PRICE:
                     continue
 
                 product_id = p.get("id")
