@@ -67,7 +67,9 @@ def _fetch_ja_name(product_id: int, session: requests.Session) -> str | None:
             timeout=15,
         )
         r.raise_for_status()
-        m = re.search(r'<meta property="og:title" content="([^"]+)"', r.text)
+        # requests は charset 未指定時に ISO-8859-1 を使うため、UTF-8 で明示デコード
+        text = r.content.decode("utf-8", errors="replace")
+        m = re.search(r'<meta property="og:title" content="([^"]+)"', text)
         if m:
             return _OG_SUFFIX_RE.sub("", m.group(1)).strip()
     except Exception:
@@ -78,7 +80,7 @@ def _fetch_ja_name(product_id: int, session: requests.Session) -> str | None:
 class SnkrdunkScraper:
     """トレカ シュリンク有商品の参考価格を取得するスクレイパー。"""
 
-    def __init__(self, cache_path: str = "snkrdunk.json"):
+    def __init__(self, cache_path: str = "docs/data/snkrdunk.json"):
         self._cache_path = cache_path
 
     def _load_ja_name_cache(self) -> dict:
