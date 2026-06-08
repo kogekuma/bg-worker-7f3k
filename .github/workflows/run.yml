@@ -12,7 +12,7 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -34,6 +34,10 @@ jobs:
         env:
           PAT: ${{ secrets.SCANNER_PAT }}
         run: |
+          if [ ! -f mobile_ichiban.json ]; then
+            echo "mobile_ichiban.json が生成されていないためスキップ（接続失敗）"
+            exit 0
+          fi
           git clone https://kogekuma:$PAT@github.com/kogekuma/Scanner.git scanner_repo
           cp mobile_ichiban.json scanner_repo/docs/data/mobile_ichiban.json
           cd scanner_repo
