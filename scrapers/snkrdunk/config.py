@@ -11,9 +11,7 @@ MIN_PRICE = 500
 # 取得対象キーワードと BOX 絞り込みの設定
 # box_only=True の場合、商品名に「box」または「ボックス」を含むもののみ取得
 # max_pages: 指定した場合そのページ数で打ち切り（429 レートリミット対策）
-# ワンピースカードを最初に置き、レートリミット前に確実に取得する
 SEARCH_TARGETS = [
-    {"keyword": "ワンピースカード",         "box_only": True,  "max_pages": 20},
-    {"keyword": "ポケモンカード",            "box_only": False, "max_pages": 25},
-    {"keyword": "ポケモンカードゲームMEGA",  "box_only": False, "max_pages": 10},
+    {"keyword": "ポケモンカード",           "box_only": False, "max_pages": 25},
+    {"keyword": "ポケモンカードゲームMEGA", "box_only": False, "max_pages": 10},
 ]
