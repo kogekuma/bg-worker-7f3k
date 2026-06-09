@@ -116,6 +116,11 @@ class SnkrdunkScraper:
 
             sw = data.get("streetwears") or []
             sn = data.get("sneakers") or []
+            if page == 1:
+                _all = sw + (data.get("sneakers") or [])
+                _tc_f = sum(1 for _p in _all if not _p.get("isTradingCard", False))
+                _no_p = sum(1 for _p in _all if not (_p.get("minPrice") or 0) or (_p.get("minPrice") or 0) < MIN_PRICE)
+                print(f"[debug] {keyword} p1: isTradingCard=False={_tc_f}/{len(_all)} minPrice<500={_no_p}/{len(_all)}", flush=True)
             print(f"[snkrdunk] {keyword} p={page}: sw={len(sw)} sn={len(sn)} total={data.get('streetwearCount',0)}", flush=True)
             products = sw + sn
             if not products:
