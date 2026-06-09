@@ -94,7 +94,7 @@ class SnkrdunkScraper:
         except Exception:
             return {}
 
-    def _fetch_keyword(self, keyword: str, box_only: bool) -> list:
+    def _fetch_keyword(self, keyword: str, box_only: bool, max_pages: int = 0) -> list:
         """1キーワード分の商品一覧を取得して返す。"""
         results = []
         seen_ids = set()
@@ -153,6 +153,8 @@ class SnkrdunkScraper:
             if page * PER_PAGE >= total or len(products) < PER_PAGE:
                 break
 
+            if max_pages > 0 and page >= max_pages:
+                break
             page += 1
             time.sleep(random.uniform(0.8, 1.5))
 
@@ -169,8 +171,9 @@ class SnkrdunkScraper:
             # 2件目以降はレートリミット回避のため待機
             if i > 0:
                 print(f"[snkrdunk] レートリミット回避のため90秒待機...", flush=True)
-                time.sleep(90)
-            items = self._fetch_keyword(keyword, box_only)
+                time.sleep(150)
+            max_pages = target.get("max_pages", 0)
+            items = self._fetch_keyword(keyword, box_only, max_pages)
             # 重複IDを除去（複数キーワードで同一商品が出る場合）
             for item in items:
                 if item["id"] not in seen_ids:
