@@ -7,12 +7,12 @@ on:
 
 concurrency:
   group: kaitorishouten
-  cancel-in-progress: true
+  cancel-in-progress: false   # 実行中は次をキュー待機させる（30分周期だが実行に40分かかるため）
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
