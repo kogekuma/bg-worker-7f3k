@@ -63,9 +63,23 @@ class MorimoriScraper(BaseScraper):
                 result.append(cat)
 
         # Step 1: sitemap.xml から取得（メイン）
-        resp = self.get(BASE_URL + "/sitemap.xml")
-        for cat in re.findall(r"/category/([^/]+)/product/\d+", resp.text):
-            add_cat(cat)
+        # 接続タイムアウト等で失敗する場合があるためリトライ処理を設ける
+        resp = None
+        for attempt in range(3):
+            try:
+                resp = self.get(BASE_URL + "/sitemap.xml")
+                resp.raise_for_status()
+                break
+            except Exception as e:
+                wait = 30 * (attempt + 1)
+                if attempt < 2:
+                    print(f"  [morimori] sitemap 取得失敗({attempt+1}/3): {e} → {wait}秒待機", flush=True)
+                    time.sleep(wait)
+                else:
+                    print(f"  [morimori] sitemap 取得失敗(3/3): {e}", flush=True)
+        if resp is not None:
+            for cat in re.findall(r"/category/([^/]+)/product/\d+", resp.text):
+                add_cat(cat)
         sitemap_count = len(result)
 
         # Step 2: sitemap に掲載されていない既知カテゴリを静的補完
