@@ -7,9 +7,9 @@ GitHub Actions 上で実行（VPS IP ブロックを回避するため）。
   - 商品一覧:    /category/{cat_id}?page=N
   - 1ページの件数が PAGE_SIZE 未満なら最終ページ
 
-リーフカテゴリ判定:
-  sitemap に含まれる全カテゴリ ID のうち、他のカテゴリ ID の前方一致になっているものは
-  「親カテゴリ」として除外する。
+カテゴリ取得:
+  sitemap.xml から /category/{cat_id}/product/{id} パターンを抽出し、
+  sitemap 未掲載カテゴリ（PS5ソフト・Switchソフト・Xbox 等）を静的リストで補完する。
 
 商品フィルタ:
   .status-badge img の src に "status-new" を含む商品のみ取得（中古品は status-old.svg）。
@@ -49,45 +49,41 @@ class MorimoriScraper(BaseScraper):
         time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
 
     def _get_leaf_categories(self) -> list[str]:
-        """sitemap.xml からリーフカテゴリ ID 一覧を取得する。
+        """sitemap.xml と静的補完リストを組み合わせて全カテゴリを取得する。
 
-        sitemap に含まれる /category/{cat_id}/product/{id} パターンから
-        全ユニーク cat_id を抽出し、他の cat_id の前方一致（親カテゴリ）を除外する。
-        sitemap の出現順を維持することで毎回同じ処理順になる。
+        sitemap.xml は PS5ソフト・Switchソフト・Xbox 等の一部カテゴリを掲載していない。
+        また、4桁カテゴリページにはサブカテゴリリンクが存在しないため、
+        直接プローブで確認済みの不掲載カテゴリを静的リストで補完する。
         """
-        # sitemap.xml はサイズが大きく接続が不安定なためリトライを入れる
-        resp = None
-        for attempt in range(3):
-            try:
-                resp = self.get(BASE_URL + "/sitemap.xml")
-                resp.raise_for_status()
-                break
-            except Exception as e:
-                wait = 30 * (attempt + 1)
-                if attempt < 2:
-                    print(f"  [morimori] sitemap 取得失敗({attempt+1}/3): {e} → {wait}秒待機", flush=True)
-                    time.sleep(wait)
-                else:
-                    print(f"  [morimori] sitemap 取得失敗(3/3): {e}", flush=True)
-        if resp is None:
-            return []
-
-        all_cats = set(re.findall(r"/category/([^/]+)/product/\d+", resp.text))
-
-        # 他のカテゴリ ID の前方一致になっているカテゴリ = 親カテゴリ
-        parents = {
-            c for c in all_cats
-            if any(o != c and o.startswith(c) for o in all_cats)
-        }
-        leaf_set = all_cats - parents
-        leaf_set.discard("99")  # 全商品集約カテゴリ（他と重複）はスキップ
-
-        # sitemap 出現順を維持しつつ重複を除去
         seen, result = set(), []
-        for cat in re.findall(r"/category/([^/]+)/product/\d+", resp.text):
-            if cat not in seen and cat in leaf_set:
+
+        def add_cat(cat):
+            if cat not in seen:
                 seen.add(cat)
                 result.append(cat)
+
+        # Step 1: sitemap.xml から取得（メイン）
+        resp = self.get(BASE_URL + "/sitemap.xml")
+        for cat in re.findall(r"/category/([^/]+)/product/\d+", resp.text):
+            add_cat(cat)
+        sitemap_count = len(result)
+
+        # Step 2: sitemap に掲載されていない既知カテゴリを静的補完
+        # 4桁カテゴリページにはサブカテゴリリンクが存在しないため、
+        # 直接プローブで確認済みのカテゴリを静的に追加する
+        SITEMAP_MISSING = [
+            "0101002",  # PS5ソフト
+            "0104002",  # Switchソフト
+            "0104003",  # Switch Lite / Switch関連
+            "0108001",  # Xbox Series X/S 本体
+            "0108003",  # Xbox Series X/S アクセサリ
+            "0109001",  # Xbox One 本体
+            "0109003",  # Xbox One アクセサリ
+        ]
+        for cat in SITEMAP_MISSING:
+            add_cat(cat)
+
+        print(f"  sitemap: {sitemap_count}件, 補完: {len(result) - sitemap_count}件, 合計: {len(result)}件", flush=True)
         return result
 
     def _scan_category(self, cat_id: str, results: dict, lock: threading.Lock):
