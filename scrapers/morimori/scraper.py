@@ -149,6 +149,9 @@ class MorimoriScraper(BaseScraper):
                 ) if jan_el else None
                 if not jan:
                     continue
+                # morimori は EAN-13（先頭 0 の 13 桁）を 12 桁で表示するため補完する
+                if len(jan) == 12:
+                    jan = "0" + jan
 
                 # 通常買取価格（特別価格・キャンペーン価格は含まない）
                 price_el = item.select_one(".price-normal-number h5")
