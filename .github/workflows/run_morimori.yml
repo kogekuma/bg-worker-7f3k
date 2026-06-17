@@ -57,14 +57,18 @@ jobs:
           pattern: morimori-shard-*
           merge-multiple: true
 
-      - name: Merge shards
-        run: python merge_morimori.py
+      - name: Clone Scanner repo (for base data and push)
+        env:
+          PAT: ${{ secrets.SCANNER_PAT }}
+        run: git clone --depth=1 https://kogekuma:$PAT@github.com/kogekuma/Scanner.git scanner_repo
+
+      - name: Merge shards (incremental — keeps cancelled-shard data from previous run)
+        run: python merge_morimori.py --base scanner_repo/docs/data/morimori.json
 
       - name: Push to Scanner repo
         env:
           PAT: ${{ secrets.SCANNER_PAT }}
         run: |
-          git clone https://kogekuma:$PAT@github.com/kogekuma/Scanner.git scanner_repo
           cp morimori.json scanner_repo/docs/data/morimori.json
           cd scanner_repo
           git config user.name  "github-actions[bot]"
