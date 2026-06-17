@@ -28,6 +28,7 @@ leaf_cats = scraper._get_leaf_categories()
 # SITEMAP_MISSING カテゴリはシャードに関わらず全シャードで必ず処理する
 # (並走するスケジュール実行で一部シャードがキャンセルされても取得漏れを防ぐ)
 SITEMAP_MISSING = [
+    "0101001",  # PS5本体（シャードキャンセル時の消失防止）
     "0101002",  # PS5ソフト
     "0104002",  # Switchソフト
     "0104003",  # Switch Lite / Switch関連
