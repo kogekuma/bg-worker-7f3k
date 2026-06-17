@@ -36,6 +36,8 @@ SITEMAP_MISSING = [
     "0108003",  # Xbox Series X/S アクセサリ
     "0109001",  # Xbox One 本体
     "0109003",  # Xbox One アクセサリ
+    "0113001",  # Xbox Series S 本体（sitemap未掲載・プローブ確認済み2件）
+    "0115001",  # Steam Deck 本体（sitemap未掲載・プローブ確認済み7件）
 ]
 # シャード担当分 + 全SITEMAP_MISSINGカテゴリ（重複はsetで排除）
 my_cats_set  = set(leaf_cats[args.shard::args.total_shards])

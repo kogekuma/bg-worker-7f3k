@@ -93,6 +93,8 @@ class MorimoriScraper(BaseScraper):
             "0108003",  # Xbox Series X/S アクセサリ
             "0109001",  # Xbox One 本体
             "0109003",  # Xbox One アクセサリ
+            "0113001",  # Xbox Series S 本体（sitemap未掲載・プローブ確認済み2件）
+            "0115001",  # Steam Deck 本体（sitemap未掲載・プローブ確認済み7件）
         ]
         for cat in SITEMAP_MISSING:
             add_cat(cat)

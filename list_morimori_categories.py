@@ -37,7 +37,20 @@ PROBE_CATS = [
 KNOWN_MISSING = ["0101002","0104002","0104003","0108001","0108003","0109001","0109003","0101001"]
 PROBE_CATS = [c for c in PROBE_CATS if c not in KNOWN_MISSING]
 
-print(f"プローブ候補: {len(PROBE_CATS)}件", flush=True)
+# 0111・0114 の直接内容確認（status-new/old どちらも含む）
+print("\n=== 0111・0114 の詳細内容確認 ===", flush=True)
+for cat in ["0111", "0114"]:
+    try:
+        r = session.get(f"{BASE_URL}/category/{cat}", timeout=15)
+        badges_new = re.findall(r'status-new', r.text)
+        badges_old = re.findall(r'status-old', r.text)
+        jans = re.findall(r'JAN:(\d+)', r.text)
+        print(f"  {cat}: status-new={len(badges_new)}件, status-old={len(badges_old)}件, JAN={jans[:5]}", flush=True)
+        time.sleep(2)
+    except Exception as e:
+        print(f"  {cat}: エラー {e}", flush=True)
+
+print(f"\nプローブ候補: {len(PROBE_CATS)}件", flush=True)
 for cat in PROBE_CATS:
     try:
         r = session.get(f"{BASE_URL}/category/{cat}", timeout=15)
