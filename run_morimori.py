@@ -24,9 +24,24 @@ scraper = MorimoriScraper()
 
 # カテゴリを取得してシャード分割
 leaf_cats = scraper._get_leaf_categories()
-my_cats   = leaf_cats[args.shard::args.total_shards]  # 担当カテゴリ（例: 0,5,10,15...）
 
-print(f"[morimori shard {args.shard}/{args.total_shards}] {len(my_cats)} カテゴリ担当", flush=True)
+# SITEMAP_MISSING カテゴリはシャードに関わらず全シャードで必ず処理する
+# (並走するスケジュール実行で一部シャードがキャンセルされても取得漏れを防ぐ)
+SITEMAP_MISSING = [
+    "0101002",  # PS5ソフト
+    "0104002",  # Switchソフト
+    "0104003",  # Switch Lite / Switch関連
+    "0108001",  # Xbox Series X/S 本体
+    "0108003",  # Xbox Series X/S アクセサリ
+    "0109001",  # Xbox One 本体
+    "0109003",  # Xbox One アクセサリ
+]
+# シャード担当分 + 全SITEMAP_MISSINGカテゴリ（重複はsetで排除）
+my_cats_set  = set(leaf_cats[args.shard::args.total_shards])
+extra_cats   = [c for c in SITEMAP_MISSING if c not in my_cats_set]
+my_cats      = leaf_cats[args.shard::args.total_shards] + extra_cats
+
+print(f"[morimori shard {args.shard}/{args.total_shards}] {len(my_cats)} カテゴリ担当 (SITEMAP追加: {len(extra_cats)}件)", flush=True)
 
 # シャード内のカテゴリのみスクレイピング（1並列・順番に）
 import threading
