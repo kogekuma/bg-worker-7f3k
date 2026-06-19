@@ -96,6 +96,9 @@ class MorimoriScraper(BaseScraper):
             "0113001",  # Xbox Series S 本体（sitemap未掲載・プローブ確認済み2件）
             "0114",     # Meta Quest / VRヘッドセット（sitemap掲載だがキャンセルで消失、6件確認）
             "0115001",  # Steam Deck 本体（sitemap未掲載・プローブ確認済み7件）
+            "0301063",  # iPhone 17（無印）（sitemap未掲載・プローブ確認済み）
+            "0301066",  # iPhone 17 Pro Max（sitemap未掲載・プローブ確認済み）
+            "0301067",  # iPhone 17e（sitemap未掲載・プローブ確認済み）
         ]
         for cat in SITEMAP_MISSING:
             add_cat(cat)

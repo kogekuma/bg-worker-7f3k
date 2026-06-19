@@ -25,9 +25,10 @@ def extract_price(text: str) -> int | None:
     return int(digits)
 
 
-def merge_into_results(results: dict, jan: str, name: str, price: int, url: str):
-    """results に (jan, name, price, url) をマージする。同一 JAN は高い価格を採用。"""
+def merge_into_results(results: dict, jan: str, name: str, price: int, url: str, force: bool = False):
+    """results に (jan, name, price, url) をマージする。
+    通常は高い価格を採用。force=True の場合は既存価格より低くても上書き（カテゴリページ優先用）。"""
     if jan not in results:
         results[jan] = {"name": name, "price": price, "url": url}
-    elif price > results[jan]["price"]:
+    elif force or price > results[jan]["price"]:
         results[jan] = {"name": name, "price": price, "url": url}

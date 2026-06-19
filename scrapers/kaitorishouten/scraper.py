@@ -255,7 +255,7 @@ class KaitorishoutenScraper(BaseScraper):
             page += 1
             _ajax_sleep()
 
-    def _scan_category(self, cat_path: str, results: dict, lock: threading.Lock):
+    def _scan_category(self, cat_path: str, results: dict, lock: threading.Lock, force: bool = False):
         """カテゴリページを全ページスキャンして results にマージする。
 
         複数スレッドから同時に呼ばれるため lock で書き込みを保護する。
@@ -265,6 +265,7 @@ class KaitorishoutenScraper(BaseScraper):
             cat_path: カテゴリパス（例: "/category/3/1234"）
             results:  JAN をキーとする価格辞書（共有・更新される）
             lock:     results への排他アクセス用ロック
+            force:    True の場合 AJAX 取得済み価格より低くても上書き（category/3・4 用）
         """
         url = BASE_URL + cat_path
         page, max_page = 1, 1
@@ -297,7 +298,7 @@ class KaitorishoutenScraper(BaseScraper):
             for jan, name, price in self._extract_jans(soup):
                 if price:
                     with lock:
-                        merge_into_results(results, jan, name, price, url)
+                        merge_into_results(results, jan, name, price, url, force=force)
 
             if page >= max_page:
                 break
@@ -382,7 +383,7 @@ class KaitorishoutenScraper(BaseScraper):
         self.session.headers.update({"Referer": BASE_URL + "/nitiyouhin"})
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             futures = {
-                executor.submit(self._scan_category, f"/category/3/{cat_id}", results, lock): cat_id
+                executor.submit(self._scan_category, f"/category/3/{cat_id}", results, lock, True): cat_id
                 for cat_id in sm["cat3"]
             }
             for future in as_completed(futures):
@@ -398,7 +399,7 @@ class KaitorishoutenScraper(BaseScraper):
         self.session.headers.update({"Referer": BASE_URL + "/keitai"})
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             futures = {
-                executor.submit(self._scan_category, f"/category/4/{cat_id}", results, lock): cat_id
+                executor.submit(self._scan_category, f"/category/4/{cat_id}", results, lock, True): cat_id
                 for cat_id in sm["cat4"]
             }
             for future in as_completed(futures):
