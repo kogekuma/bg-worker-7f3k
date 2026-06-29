@@ -1,27 +1,26 @@
-name: Morimori Scraper (leaf)
+name: Morimori Scraper (cat99)
 
-# leaf カテゴリ走査。cat99 は別ワークフロー run_morimori_cat99.yml が担当する。
-# 20シャード（Phase0 計測: 商品ありページ応答 ~7.5秒。20シャード+大カテゴリ
-# ページ分散で最大 ~6分/シャード）。
-# GitHub Actions の同時実行上限（~20）を超えないよう cat99 と時間をずらす:
-#   leaf  : 毎時 :00, :30
+# cat99（全商品集約カテゴリ・約2529件の家電/その他）をページ単位で10シャードに
+# 分散して走査する。leaf 走査とは失敗ドメイン・スケジュールを分離する。
+# 10シャード × ~29ページ × ~7.5秒 ≈ 3.6分/シャード。
+# leaf（:00, :30）と時間をずらして同時実行上限（~20）超過を避ける:
 #   cat99 : 毎時 :15, :45
 
 on:
   schedule:
-    - cron: "0,30 * * * *"
+    - cron: "15,45 * * * *"
   workflow_dispatch:
 
 concurrency:
-  group: morimori-leaf
+  group: morimori-cat99
   cancel-in-progress: true
 
 jobs:
   scrape:
     strategy:
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-      fail-fast: false   # 1シャードが失敗しても他は継続
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      fail-fast: false
     runs-on: ubuntu-latest
     timeout-minutes: 14
 
@@ -35,19 +34,19 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - name: Run morimori leaf shard ${{ matrix.shard }}
-        run: python run_morimori.py --shard ${{ matrix.shard }} --total-shards 20
+      - name: Run morimori cat99 shard ${{ matrix.shard }}
+        run: python run_morimori_cat99.py --shard ${{ matrix.shard }} --total-shards 10
 
       - name: Upload shard artifact
         uses: actions/upload-artifact@v4
         with:
-          name: morimori-shard-${{ matrix.shard }}
-          path: morimori_shard_${{ matrix.shard }}.json
+          name: morimori-cat99-shard-${{ matrix.shard }}
+          path: morimori_cat99_shard_${{ matrix.shard }}.json
           retention-days: 1
 
   merge:
     needs: scrape
-    if: always()   # 一部シャードが失敗しても必ず実行
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -58,10 +57,10 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Download all shard artifacts
+      - name: Download all cat99 shard artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: morimori-shard-*
+          pattern: morimori-cat99-shard-*
           merge-multiple: true
 
       - name: Clone Scanner repo (for base data and push)
@@ -69,8 +68,8 @@ jobs:
           PAT: ${{ secrets.SCANNER_PAT }}
         run: git clone --depth=1 https://kogekuma:$PAT@github.com/kogekuma/Scanner.git scanner_repo
 
-      - name: Merge leaf shards (incremental — keeps cat99 and cancelled-shard data)
-        run: python merge_morimori.py --base scanner_repo/docs/data/morimori.json --scope leaf --shards 20
+      - name: Merge cat99 shards (incremental — keeps leaf and cancelled-shard data)
+        run: python merge_morimori.py --base scanner_repo/docs/data/morimori.json --scope cat99 --shards 10
 
       - name: Push to Scanner repo
         env:
@@ -82,5 +81,5 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/data/morimori.json
           git diff --cached --quiet || \
-            git commit -m "chore: update morimori leaf data $(date -u '+%Y-%m-%d %H:%M UTC')"
+            git commit -m "chore: update morimori cat99 data $(date -u '+%Y-%m-%d %H:%M UTC')"
           git push
