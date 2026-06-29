@@ -222,6 +222,16 @@ class MorimoriScraper(BaseScraper):
                 merge_into_results(results, jan, name, price, url)
         return len(items)
 
+    def _get_last_page(self, cat_id: str) -> int:
+        """カテゴリの最終ページ番号を返す（ページ1のページネーションリンクから）。
+
+        morimori はページ1の HTML に最終ページへの ?page=N リンクを含むため、
+        その最大値を最終ページとみなす。リンクが無ければ1ページ（単一ページ）。
+        """
+        resp = self._get_with_retries(f"{BASE_URL}/category/{cat_id}")
+        pages = [int(m) for m in re.findall(r"[?&]page=(\d+)", resp.text)]
+        return max(pages) if pages else 1
+
     def _scan_category_pages(
         self,
         cat_id: str,
@@ -232,12 +242,46 @@ class MorimoriScraper(BaseScraper):
     ):
         """カテゴリのページを page_start から page_step 間隔で走査して results にマージする。
 
-        page_step == 1（連続走査）の場合は PAGE_SIZE 未満のページで最終ページと判定して止める。
-        page_step > 1（シャード間ページ分散）の場合はスキップが入るため最終ページ判定が
-        できないので、商品0件のページに到達するまで進める。
+        page_step == 1（連続走査）: PAGE_SIZE 未満のページで最終ページと判定して止める。
+        page_step > 1（シャード間ページ分散）: 先に最終ページ番号を確定し、その既知範囲
+            だけを走査する。一時的に0件を返すページがあっても早期終了せず、そのページのみ
+            スキップする（取りこぼしは次回以降の増分マージで回収される）。
+            ※ 空ページで止めると、深いページが一時的に0件を返したときにカテゴリ後半を
+              まるごと取りこぼすため、終端を事前確定する方式にしている。
         """
-        page = page_start
-        while not self._abort_event.is_set():
+        if page_step == 1:
+            page = page_start
+            while not self._abort_event.is_set():
+                params = {"page": page} if page > 1 else {}
+                try:
+                    resp = self._get_with_retries(f"{BASE_URL}/category/{cat_id}", params=params)
+                except MorimoriBlockedError:
+                    raise
+                except Exception as exc:
+                    print(f"  [morimori] {cat_id} page={page} skipped: {exc}", flush=True)
+                    break
+
+                n_items = self._parse_items(resp, cat_id, results, lock)
+                if n_items == 0:
+                    break
+                print(f"  [morimori] {cat_id} page={page} ({n_items} items)", flush=True)
+                if n_items < PAGE_SIZE:
+                    break
+                page += 1
+            return
+
+        # ストライド走査: 終端ページを先に確定してから既知範囲のみ走査する
+        try:
+            last_page = self._get_last_page(cat_id)
+        except MorimoriBlockedError:
+            raise
+        except Exception as exc:
+            print(f"  [morimori] {cat_id} last-page detection failed: {exc}", flush=True)
+            return
+
+        for page in range(page_start, last_page + 1, page_step):
+            if self._abort_event.is_set():
+                break
             params = {"page": page} if page > 1 else {}
             try:
                 resp = self._get_with_retries(f"{BASE_URL}/category/{cat_id}", params=params)
@@ -245,16 +289,10 @@ class MorimoriScraper(BaseScraper):
                 raise
             except Exception as exc:
                 print(f"  [morimori] {cat_id} page={page} skipped: {exc}", flush=True)
-                break
+                continue
 
             n_items = self._parse_items(resp, cat_id, results, lock)
-            if n_items == 0:
-                break
             print(f"  [morimori] {cat_id} page={page} ({n_items} items)", flush=True)
-
-            if page_step == 1 and n_items < PAGE_SIZE:
-                break
-            page += page_step
 
     def _scan_category(self, cat_id: str, results: dict, lock: threading.Lock):
         """単一カテゴリの全ページを連続走査して results にマージする。"""
