@@ -1,9 +1,10 @@
 name: Morimori Scraper (cat99)
 
-# cat99（全商品集約カテゴリ・約2529件の家電/その他）をページ単位で10シャードに
-# 分散して走査する。leaf 走査とは失敗ドメイン・スケジュールを分離する。
-# 10シャード × ~29ページ × ~7.5秒 ≈ 3.6分/シャード。
-# leaf（:00, :30）と時間をずらして同時実行上限（~20）超過を避ける:
+# cat99（全商品集約カテゴリ・家電/その他）をページ単位で15シャードに分散して走査する。
+# leaf 走査とは失敗ドメイン・スケジュールを分離する。
+# 289ページ / 15シャード ≈ 20ページ/シャード。morimori の商品ありページは応答が
+# 重く（負荷時 ~20秒/ページまで悪化しうる）、14分窓に収めるため余裕を持たせる。
+# leaf（:00, :30）と時間をずらして同時実行上限超過を避ける:
 #   cat99 : 毎時 :15, :45
 
 on:
@@ -21,7 +22,7 @@ jobs:
   scrape:
     strategy:
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
       fail-fast: false
     runs-on: ubuntu-latest
     timeout-minutes: 14
@@ -37,7 +38,7 @@ jobs:
       - run: pip install -r requirements.txt
 
       - name: Run morimori cat99 shard ${{ matrix.shard }}
-        run: python run_morimori_cat99.py --shard ${{ matrix.shard }} --total-shards 10
+        run: python run_morimori_cat99.py --shard ${{ matrix.shard }} --total-shards 15
 
       - name: Upload shard artifact
         uses: actions/upload-artifact@v4
@@ -71,7 +72,7 @@ jobs:
         run: git clone --depth=1 https://kogekuma:$PAT@github.com/kogekuma/Scanner.git scanner_repo
 
       - name: Merge cat99 shards (incremental — keeps leaf and cancelled-shard data)
-        run: python merge_morimori.py --base scanner_repo/docs/data/morimori.json --scope cat99 --shards 10
+        run: python merge_morimori.py --base scanner_repo/docs/data/morimori.json --scope cat99 --shards 15
 
       - name: Push to Scanner repo
         env:
