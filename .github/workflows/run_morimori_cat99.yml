@@ -13,7 +13,9 @@ on:
 
 concurrency:
   group: morimori-cat99
-  cancel-in-progress: true
+  # 走行中の run を次回スケジュール（GitHub のスケジュール遅延で重なる場合がある）で
+  # キャンセルしない。cancel-in-progress: true は凍結の主因（Codex 指摘）。
+  cancel-in-progress: false
 
 jobs:
   scrape:

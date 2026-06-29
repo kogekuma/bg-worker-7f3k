@@ -14,7 +14,10 @@ on:
 
 concurrency:
   group: morimori-leaf
-  cancel-in-progress: true
+  # 走行中の run を次回スケジュール（特に GitHub のスケジュール遅延で重なった場合）で
+  # キャンセルしない。cancel-in-progress: true だと「遅い run が毎回殺され、軽いシャード
+  # だけ更新・重いシャードは恒久的に古い」状態を固定化する（凍結の主因・Codex 指摘）。
+  cancel-in-progress: false
 
 jobs:
   scrape:
