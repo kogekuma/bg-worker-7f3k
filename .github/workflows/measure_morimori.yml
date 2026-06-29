@@ -1,0 +1,26 @@
+name: Measure Morimori Latency
+
+# Phase 0: GitHub Actions ランナー（新規 IP）から morimori の商品ありページの
+# 応答レイテンシ中央値を計測する。手動実行のみ・書き込みなし・1 ジョブのみ。
+# 結果で leaf 走査のシャード数（簡素 10 / 堅牢 20）を判定する。
+
+on:
+  workflow_dispatch:
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Measure latency
+        run: python measure_morimori.py
