@@ -8,7 +8,7 @@
   - 通常カテゴリ: カテゴリ単位で stride 分割（cats[shard::total]）。多くは1ページ。
   - 大カテゴリ（BIG_CATEGORIES, 12ページ超）: 1シャードに偏ると14分窓を超えるため、
     ページ単位で全シャードに分散（shard k は page k+1, k+1+total, ...）。
-  - SITEMAP_MISSING: 取りこぼし防止のため全シャードで必ず走査（各カテゴリは小さい）。
+  - SITEMAP_MISSING: discovery が必ず含めるため通常/大カテゴリ側で自然にカバーされる。
 
   leaf 全体は約2708ページ（商品はほぼ全て新品・複数カテゴリに重複掲載）ある。
   サーバは高並列に耐えられない（20シャード×並列で過負荷になり全滅する実測あり）ため、
@@ -24,7 +24,7 @@ import threading
 from datetime import datetime, timezone, timedelta
 
 from scrapers.morimori import MorimoriScraper
-from scrapers.morimori.scraper import AGGREGATE_CATEGORY, SITEMAP_MISSING
+from scrapers.morimori.scraper import AGGREGATE_CATEGORY
 
 JST = timezone(timedelta(hours=9))
 
@@ -57,18 +57,22 @@ args = parser.parse_args()
 
 scraper = MorimoriScraper()
 
-# sitemap から全カテゴリを発見し、除外カテゴリ（cat99・冗長集約05）を外す
+# sitemap から全カテゴリを発見し、除外カテゴリ（cat99・冗長集約05）を外す。
+# _discover_categories は SITEMAP_MISSING を必ず union するため、SITEMAP カテゴリも
+# all_cats に含まれる。よって小さい SITEMAP カテゴリは通常 stride で、大きいもの
+# （0104002/0104003 等）は BIG のページ分散で自然にカバーされる。
+# （旧実装は SITEMAP を全シャードで別途フル走査しており、大 SITEMAP カテゴリを
+#   各シャードで全走査＋BIGで二重走査してタイムアウトの主因になっていた）
 all_cats   = [c for c in scraper._discover_categories() if c not in EXCLUDE_FROM_LEAF]
-missing_set = set(SITEMAP_MISSING)
-big_set     = {c for c in BIG_CATEGORIES if c in all_cats}
+big_set    = {c for c in BIG_CATEGORIES if c in all_cats}
 
-# 通常カテゴリ（= 大カテゴリでも SITEMAP_MISSING でもない）を stride 分割
-normal_cats = [c for c in all_cats if c not in big_set and c not in missing_set]
+# 通常カテゴリ（大カテゴリ以外・小 SITEMAP を含む）を stride 分割
+normal_cats = [c for c in all_cats if c not in big_set]
 my_normal   = normal_cats[args.shard::args.total_shards]
 
 print(
     f"[morimori leaf shard {args.shard}/{args.total_shards}] "
-    f"通常 {len(my_normal)} / 大 {len(big_set)}(ページ分散) / SITEMAP {len(missing_set)}(全shard)",
+    f"通常 {len(my_normal)} / 大 {len(big_set)}(ページ分散) / 全カテゴリ {len(all_cats)}",
     flush=True,
 )
 
@@ -78,15 +82,11 @@ lock = threading.Lock()
 # 直列走査（サーバは高並列に耐えられないため、シャード内は1接続に保つ。
 # 並列化すると 20シャード×並列数の同時接続でサーバが過負荷になり全滅する）。
 try:
-    # 1) 通常カテゴリ（担当分のみ・連続走査）
+    # 1) 通常カテゴリ（担当分のみ・連続走査。小 SITEMAP カテゴリもここに含まれる）
     for cat_id in my_normal:
         scraper._scan_category(cat_id, results, lock)
 
-    # 2) SITEMAP_MISSING（全シャードで走査・取りこぼし防止）
-    for cat_id in SITEMAP_MISSING:
-        scraper._scan_category(cat_id, results, lock)
-
-    # 3) 大カテゴリ（ページ単位で全シャードに分散）
+    # 2) 大カテゴリ（ページ単位で全シャードに分散。大 SITEMAP もここで処理される）
     for cat_id in sorted(big_set):
         scraper._scan_category_pages(
             cat_id, results, lock,
