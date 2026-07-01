@@ -10,11 +10,10 @@
     ページ単位で全シャードに分散（shard k は page k+1, k+1+total, ...）。
   - SITEMAP_MISSING: 取りこぼし防止のため全シャードで必ず走査（各カテゴリは小さい）。
 
-  leaf 全体は約2708ページ（商品はほぼ全て新品・複数カテゴリに重複掲載）で、直列だと
-  1ページ ~8秒律速で20シャードでも14分を超える。シャード内を LEAF_WORKERS 並列にすると、
-  グローバルレート制限（2-3秒/開始間隔）が律速になり実効 ~4秒/ページに短縮される
-  （latency 律速 → レート律速）。結果への書き込みは lock、リクエスト間隔は
-  scraper 側の _rate_lock で保護されるためスレッドセーフ。
+  leaf 全体は約2708ページ（商品はほぼ全て新品・複数カテゴリに重複掲載）ある。
+  サーバは高並列に耐えられない（20シャード×並列で過負荷になり全滅する実測あり）ため、
+  シャード内は直列（1接続）に保つ。総ページを減らすには重複掲載の集約カテゴリ除外や
+  シャード数の調整で対応する。
 
 結果を morimori_shard_{N}.json として出力する（merge_morimori.py が増分マージ）。
 """
@@ -22,17 +21,12 @@
 import argparse
 import json
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 
 from scrapers.morimori import MorimoriScraper
-from scrapers.morimori.scraper import AGGREGATE_CATEGORY, MorimoriBlockedError, SITEMAP_MISSING
+from scrapers.morimori.scraper import AGGREGATE_CATEGORY, SITEMAP_MISSING
 
 JST = timezone(timedelta(hours=9))
-
-# シャード内の並列ワーカー数。グローバルレート制限（2-3秒）があるため 403 誘発は
-# 抑えられる（旧来の 5 並列・レート制限なしとは異なる）。まず 3 で運用する。
-LEAF_WORKERS = 3
 
 # leaf から除外するカテゴリ。
 #   99 = 全商品集約（別ワークフロー run_morimori_cat99.py が担当）
@@ -81,41 +75,25 @@ print(
 results: dict = {}
 lock = threading.Lock()
 
-# 走査タスクを構築（各タスク = 1カテゴリの走査、または大カテゴリのページ分散走査）
-def scan_normal(cat_id):
-    scraper._scan_category(cat_id, results, lock)
-
-def scan_big(cat_id):
-    scraper._scan_category_pages(
-        cat_id, results, lock,
-        page_start=args.shard + 1, page_step=args.total_shards,
-    )
-
-tasks = []
-# 1) 通常カテゴリ（担当分のみ・連続走査）
-tasks += [(scan_normal, c) for c in my_normal]
-# 2) SITEMAP_MISSING（全シャードで走査・取りこぼし防止）
-tasks += [(scan_normal, c) for c in SITEMAP_MISSING]
-# 3) 大カテゴリ（ページ単位で全シャードに分散）
-tasks += [(scan_big, c) for c in sorted(big_set)]
-
-# シャード内を LEAF_WORKERS 並列で走査する（グローバルレート制限が律速）
+# 直列走査（サーバは高並列に耐えられないため、シャード内は1接続に保つ。
+# 並列化すると 20シャード×並列数の同時接続でサーバが過負荷になり全滅する）。
 try:
-    with ThreadPoolExecutor(max_workers=LEAF_WORKERS) as executor:
-        futures = {executor.submit(fn, cat): cat for fn, cat in tasks}
-        for future in as_completed(futures):
-            try:
-                future.result()
-            except MorimoriBlockedError:
-                # 403/429 ブロック時は全体を止めてシャードを失敗扱いにする
-                scraper._abort_event.set()
-                executor.shutdown(wait=False, cancel_futures=True)
-                raise
-            except Exception as exc:
-                # 個別カテゴリのエラーはログのみ（他カテゴリは継続）
-                print(f"  [morimori] {futures[future]} error: {exc}", flush=True)
+    # 1) 通常カテゴリ（担当分のみ・連続走査）
+    for cat_id in my_normal:
+        scraper._scan_category(cat_id, results, lock)
+
+    # 2) SITEMAP_MISSING（全シャードで走査・取りこぼし防止）
+    for cat_id in SITEMAP_MISSING:
+        scraper._scan_category(cat_id, results, lock)
+
+    # 3) 大カテゴリ（ページ単位で全シャードに分散）
+    for cat_id in sorted(big_set):
+        scraper._scan_category_pages(
+            cat_id, results, lock,
+            page_start=args.shard + 1, page_step=args.total_shards,
+        )
 except Exception as exc:
-    # ブロック等の致命的エラー時は非ゼロ終了。
+    # 403/429 ブロックや致命的エラー時は非ゼロ終了し、このシャードを失敗扱いにする。
     # → merge_morimori.py の増分マージが前回データを維持し、部分上書きを防ぐ。
     print(f"[morimori leaf shard {args.shard}] 中断: {exc}", flush=True)
     raise SystemExit(1)
