@@ -96,20 +96,22 @@ class KaitorishoutenScraper(BaseScraper):
         headers = dict(CHROME_HEADERS)
         if referer:
             headers["Referer"] = referer
+        # read timeout / 一時エラーは軽くリトライ（1回・5秒）。timeout は 15秒。
+        # 長い 10/30/60秒×3 はサーバ遅延時に1ページ190秒を食い潰し全体を遅くするため短縮。
         last_error = None
-        for attempt in range(3):
+        for attempt in range(2):
             if self._abort.is_set():
                 raise KaitorishoutenBlockedError("kaitorishouten aborted")
             self._wait_global_rate_limit()
             try:
                 resp = requests.get(
-                    url, params=params, headers=headers, cookies=self._cookies, timeout=30
+                    url, params=params, headers=headers, cookies=self._cookies, timeout=15
                 )
             except Exception as exc:
                 last_error = exc
-                if attempt == 2:
+                if attempt == 1:
                     break
-                time.sleep((10, 30, 60)[attempt] + random.uniform(0, 3))
+                time.sleep(5 + random.uniform(0, 2))
                 continue
 
             if resp.status_code in BLOCK_STATUS_CODES:
@@ -119,9 +121,9 @@ class KaitorishoutenScraper(BaseScraper):
                 return None
             if resp.status_code >= 500:
                 last_error = Exception(f"HTTP {resp.status_code}")
-                if attempt == 2:
+                if attempt == 1:
                     break
-                time.sleep((10, 30, 60)[attempt] + random.uniform(0, 3))
+                time.sleep(5 + random.uniform(0, 2))
                 continue
             if resp.status_code != 200:
                 return None
