@@ -17,11 +17,12 @@ AJAX_DELAY     = 3.0  # 秒
 
 # サイト全体で共有するグローバルレート制限（秒）。
 # 各 worker の sleep ではなく「kaitorishouten 宛ての次リクエストまで空ける最小間隔」。
-# これで各フェーズの並列数を上げても単一runのIPからの総リクエスト速度を約1req/秒に抑える。
-# 現在は GitHub Actions（run毎に新規IP）で実行のため、VPS固定IP時代の保守値より緩めてよい。
-# 24h 403ゼロなら 0.8〜1.2 へ短縮可。403が出たら 1.2〜1.8 に戻す（段階運用）。
-GLOBAL_MIN_INTERVAL_MIN = 0.9
-GLOBAL_MIN_INTERVAL_MAX = 1.3
+# 全 worker で共有するため、これが総リクエスト速度の上限になる（並列数ではなくこの値が律速）。
+# 0.4〜0.6秒 ≒ 約2req/秒。旧 Phase 3/4 が5並列で実質2req/秒で GitHub上403なく動いていた
+# 実績に合わせた値。1req/秒(0.9〜1.3)だと総速度が頭打ちで並列の意味が消えるため引き上げた。
+# GitHub新規IP前提。403が出たら 0.7〜1.0 に戻す。24h安定なら 0.3〜0.5 へ短縮可（段階運用）。
+GLOBAL_MIN_INTERVAL_MIN = 0.4
+GLOBAL_MIN_INTERVAL_MAX = 0.6
 
 # Phase 3/4（category/3・category/4）の ThreadPoolExecutor ワーカー数
 MAX_WORKERS    = 4
