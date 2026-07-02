@@ -1,8 +1,7 @@
-name: Morimori Scraper (leaf A)
+name: Morimori Scraper (leaf B)
 
-# leaf カテゴリ走査の前半（40分割のうち shard 0-19）。後半は run_morimori_leaf_b.yml。
-# leaf 全体は約2708ページで、20シャードでは latency 依存で14分を超えてタイムアウトする。
-# 40分割にして A/B の2ワークフローに分け、各シャード ~68ページ ≈ 9分で確実に14分内に収める。
+# leaf カテゴリ走査の後半（40分割のうち shard 20-39）。前半は run_morimori.yml (leaf A)。
+# 各シャード ~68ページ ≈ 9分で14分内に確実に収める。
 # 同時実行上限（~20）を超えないよう leaf-A / leaf-B / cat99 を10分ずつずらす:
 #   leaf-A : 毎時 :00, :30   (shard 0-19)
 #   leaf-B : 毎時 :10, :40   (shard 20-39)
@@ -10,22 +9,19 @@ name: Morimori Scraper (leaf A)
 
 on:
   schedule:
-    - cron: "0,30 * * * *"
+    - cron: "10,40 * * * *"
   workflow_dispatch:
 
 concurrency:
-  group: morimori-leaf-a
-  # 走行中の run を次回スケジュール（特に GitHub のスケジュール遅延で重なった場合）で
-  # キャンセルしない。cancel-in-progress: true だと「遅い run が毎回殺され、軽いシャード
-  # だけ更新・重いシャードは恒久的に古い」状態を固定化する（凍結の主因・Codex 指摘）。
+  group: morimori-leaf-b
   cancel-in-progress: false
 
 jobs:
   scrape:
     strategy:
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-      fail-fast: false   # 1シャードが失敗しても他は継続
+        shard: [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
+      fail-fast: false
     runs-on: ubuntu-latest
     timeout-minutes: 14
 
@@ -51,7 +47,7 @@ jobs:
 
   merge:
     needs: scrape
-    if: always()   # 一部シャードが失敗しても必ず実行
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -73,7 +69,7 @@ jobs:
           PAT: ${{ secrets.SCANNER_PAT }}
         run: git clone --depth=1 https://kogekuma:$PAT@github.com/kogekuma/Scanner.git scanner_repo
 
-      - name: Merge leaf shards (incremental — keeps cat99/leaf-B and cancelled-shard data)
+      - name: Merge leaf shards (incremental — keeps cat99/leaf-A and cancelled-shard data)
         run: python merge_morimori.py --base scanner_repo/docs/data/morimori.json --scope leaf --shards 40
 
       - name: Push to Scanner repo
@@ -86,5 +82,5 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/data/morimori.json
           git diff --cached --quiet || \
-            git commit -m "chore: update morimori leaf data $(date -u '+%Y-%m-%d %H:%M UTC')"
+            git commit -m "chore: update morimori leaf-b data $(date -u '+%Y-%m-%d %H:%M UTC')"
           git push
