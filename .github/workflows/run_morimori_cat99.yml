@@ -8,8 +8,8 @@ name: Morimori Scraper (cat99)
 #   cat99 : 毎時 :20, :50
 
 on:
-  schedule:
-    - cron: "20,50 * * * *"
+  # 発火は VPS cron（trigger_morimori.sh）から workflow_dispatch で行う（毎時 :20, :50）。
+  # GitHub の schedule は大幅に間引かれるため使わない。
   workflow_dispatch:
 
 concurrency:

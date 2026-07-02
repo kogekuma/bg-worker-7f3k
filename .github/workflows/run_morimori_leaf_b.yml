@@ -8,8 +8,8 @@ name: Morimori Scraper (leaf B)
 #   cat99  : 毎時 :20, :50
 
 on:
-  schedule:
-    - cron: "10,40 * * * *"
+  # 発火は VPS cron（trigger_morimori.sh）から workflow_dispatch で行う（毎時 :10, :40）。
+  # GitHub の schedule は大幅に間引かれるため使わない。
   workflow_dispatch:
 
 concurrency:
