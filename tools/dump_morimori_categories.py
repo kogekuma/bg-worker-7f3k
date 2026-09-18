@@ -30,7 +30,9 @@ def main():
     category_ids = set(re.findall(r"/category/(\d+)(?:[/?#<\s]|$)", text))
     seven_digit_ids = {c for c in category_ids if re.fullmatch(r"\d{7}", c)}
     product_ids = set(re.findall(r"/category/(\d+)/product/\d+", text))
-    ordered = sorted(seven_digit_ids | product_ids | set(SITEMAP_MISSING))
+    # 親ページの機種ボタン由来（新機種は sitemap より先にここへ出る）
+    button_ids = scraper._discover_model_button_categories()
+    ordered = sorted(seven_digit_ids | product_ids | set(SITEMAP_MISSING) | button_ids)
 
     OUT.write_text(
         json.dumps(

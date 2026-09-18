@@ -1,10 +1,11 @@
-"""買取商店スクレイパー実行スクリプト（fast / full モード対応）。
+"""買取商店スクレイパー実行スクリプト。
 
-  --mode full … 全フェーズ（Phase 1/5/6/3/4）。完全スナップショット。3時間ごと。
-  --mode fast … Phase 1(携帯AJAX＋家電/カメラAJAX)＋Phase 5(ゲーム機/ソフト/トレカ等)のみ。
-                変動の速い商品だけ短時間で取得。15〜30分ごと。
-  --base <path> … fast 時に前回 full の JSON を読み、その items に fast の items を上書き合成する
-                  （category/3・4・6 等の非fast分は前回値を保持）。
+  --mode full|fast … 互換のため受け取るが、2026-09-18 の JSON API 化以降はどちらも
+                     全件スナップショット（約 1〜2 分）。VPS cron は従来どおり
+                     fast=30分ごと / full=3時間ごとに dispatch しているので両方そのまま動く。
+  --base <path>    … 前回の kaitorishouten.json。縮小ガード（前回比 70% 未満なら更新しない）に使う。
+                     旧構成の「fast を前回 full に上書き合成」は、全件取得になったため廃止
+                     （合成すると掲載終了した商品が永久に残るので、しない方が正しい）。
 
 結果を kaitorishouten.json として出力する。GitHub Actions から Scanner の docs/data/ に push。
 失敗・0件・大幅縮小時は JSON を生成しない（＝前回データを保持）。
@@ -21,10 +22,10 @@ JST = timezone(timedelta(hours=9))
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", choices=["full", "fast"], default="full")
-parser.add_argument("--base", help="fast 時に上書き合成する前回 kaitorishouten.json のパス")
+parser.add_argument("--base", help="縮小ガードの基準にする前回 kaitorishouten.json のパス")
 args = parser.parse_args()
 
-# 前回データ（縮小ガード・fast合成のベース）を読み込む
+# 前回データ（縮小ガードの基準）を読み込む
 base_items: dict = {}
 if args.base:
     try:
@@ -42,16 +43,6 @@ except Exception as e:
 if not data:
     print("[kaitorishouten] 0件のため更新しません（前回データ保持）", flush=True)
     sys.exit(0)
-
-# fast: 前回 full の items に fast の items を上書き合成（他カテゴリは前回値を保持）
-if args.mode == "fast":
-    if not base_items:
-        print("[kaitorishouten] fast だが base が無いため出力しません（部分データで上書きしない）", flush=True)
-        sys.exit(0)
-    merged = dict(base_items)
-    merged.update(data)  # fast の JAN で上書き、それ以外は保持（update は縮小しない）
-    print(f"[kaitorishouten] fast合成: 前回 {len(base_items)} + fast {len(data)} → {len(merged)}", flush=True)
-    data = merged
 
 # 縮小ガード: 前回比 70% 未満なら異常とみなし更新しない（部分取得で全体を痩せさせない）
 if base_items and len(data) < len(base_items) * 0.7:

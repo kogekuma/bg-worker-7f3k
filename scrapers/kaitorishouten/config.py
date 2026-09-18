@@ -4,31 +4,21 @@ SITE_ID   = "kaitorishouten"
 SITE_NAME = "買取商店"
 BASE_URL  = "https://www.kaitorishouten-co.jp"
 
-# (ベースページパス, AJAX リスト URL)
-# ベースページへのアクセスでセッション Cookie を取得してから AJAX を叩く。
-# keitai と kaden のみ。nitiyouhin は専用 AJAX エンドポイントがなく Phase 6 で取得。
-AJAX_CATEGORIES = [
-    ("/keitai", "/products/list_keitai_new/9"),
-    ("/kaden",  "/products/list_kaden_new/10"),
-]
+# 2026-09-04 のサイト刷新（React SPA 化）後の公開 JSON API。
+# フロント（/assets/real-*.js）が叩いている /api/v1 をそのまま使う。
+#   GET /api/v1/products?per_page=100&perPage=100&page=N
+#     → {"items":[...], "page":N, "per_page":100, "total":7710}
+#   per_page は 100 が上限（それ以上を指定しても 100 に丸められる）。
+#   フロントは per_page と perPage の両方を付けるので同じにしておく。
+API_PRODUCTS_URL = BASE_URL + "/api/v1/products"
+API_PER_PAGE     = 100
 
-# AJAX エンドポイント間のウェイト（通常ブラウジングより長め）
-# サーバーが XHR アクセスのパターンを検出しやすいため余裕を持たせる
-AJAX_DELAY     = 3.0  # 秒
+# 商品個別ページ（結果 JSON の url に使う。SPA なので実体は同じ index.html）
+PRODUCT_URL = BASE_URL + "/products/detail/{}"
 
-# 通常カテゴリページ間のウェイト（ブラウジング相当）
-CATEGORY_DELAY = 2.5  # 秒（連続 403 対策で 1.5→2.5 に変更）
+# ページ間ウェイト（秒）。1ページ約0.4秒応答・78ページなので 0.6〜1.2 秒で 1〜2 分に収まる
+PAGE_DELAY_MIN = 0.6
+PAGE_DELAY_MAX = 1.2
 
-# Phase 3/4 の ThreadPoolExecutor ワーカー数
-MAX_WORKERS    = 5
-
-# Phase 5（kaden list_category）のワーカー数
-# 旧 1 は VPS単一IPの403対策。現在は GitHub Actions（run毎に新規IP）実行で、Phase 3/4 が
-# 5並列で問題なく動いている実績があるため、同じ枠組み（per-worker 2.5秒遅延・グローバル
-# 制限なし）のまま 4 に引き上げる。Phase 5 の30分がボトルネックだったため約7分に短縮見込み。
-# ※ グローバルレート制限方式はこのサーバに不適合（適応的に遅くなる）と実証済みのため、
-#    元の per-worker 遅延方式を維持し worker だけ増やす。
-PHASE5_WORKERS = 4
-
-# Phase 6（nitiyouhin list_category）のワーカー数（酒類等21カテゴリ）
-PHASE6_WORKERS = 2
+# 途中で総件数が減るなど整合性が崩れたときの取得打ち切り上限（無限ループ防止）
+MAX_PAGES = 400

@@ -7,7 +7,8 @@ GitHub Actions 上で実行（VPS IP ブロックを回避するため）。
   - 403/429 即中断: ブロック検知時は MorimoriBlockedError を投げて全体を止め、
     部分データで既存 morimori.json を上書きしない。
   - カテゴリ発見: sitemap.xml の 7桁カテゴリ全部 ∪ product URL 由来 ∪ 検証済み
-    例外（SITEMAP_MISSING）。product URL の掲載漏れによる取りこぼしを防ぐ。
+    例外（SITEMAP_MISSING）∪ 親ページの機種ボタン（MODEL_BUTTON_PARENTS）。
+    product URL の掲載漏れ・新機種の sitemap 未掲載による取りこぼしを防ぐ。
   - ページ分散走査: _scan_category_pages は page_start/page_step を取り、巨大
     カテゴリ（cat 99 や大型 leaf）をシャード間でページ単位に分散できる。
 
@@ -58,6 +59,18 @@ SITEMAP_MISSING = [
     "0301063",  # iPhone 17
     "0301066",  # iPhone 17 Pro Max
     "0301067",  # iPhone 17e
+    "0301069",  # iPhone 18 Pro（2026-09-18 時点で sitemap 未掲載）
+    "0301070",  # iPhone 18 Pro Max（同上）
+    "0301071",  # iPhone Duo（同上）
+]
+
+# 親カテゴリページの「機種を選ぶ」モーダル（button.model_name_button[data-id]）から
+# 7桁カテゴリを追加発見する対象。
+# 新機種のカテゴリは発売直後 sitemap.xml に載らず（iPhone 17 系・18 系で連続して再現）、
+# SITEMAP_MISSING への手追加を忘れると数週間丸ごと取りこぼす。親ページを1回読むだけで
+# 新機種を自動で拾えるので、sitemap の補完としてここに列挙した親ページも見る。
+MODEL_BUTTON_PARENTS = [
+    "0301",  # iPhone（アイフォン）: iPhone 12〜18 / Air / Duo / SE の全機種ボタンを持つ
 ]
 
 # 全商品集約カテゴリ。leaf 走査では別商品群（家電・その他）を含むため除外せず、
@@ -171,27 +184,64 @@ class MorimoriScraper(BaseScraper):
                 f"categories_fallback.json の {len(fallback)} 件で継続します",
                 flush=True,
             )
-            return fallback
+            # スナップショットに無い新機種を落とさないよう、親ページのボタン由来も足す
+            return sorted(set(fallback) | self._discover_model_button_categories())
 
         category_ids = set(re.findall(r"/category/(\d+)(?:[/?#<\s]|$)", text))
         seven_digit_ids = {cat for cat in category_ids if re.fullmatch(r"\d{7}", cat)}
         product_ids = set(re.findall(r"/category/(\d+)/product/\d+", text))
         missing_ids = set(SITEMAP_MISSING)
+        button_ids = self._discover_model_button_categories()
 
         ordered = []
         seen = set()
-        for cat in sorted(seven_digit_ids | product_ids | missing_ids):
+        for cat in sorted(seven_digit_ids | product_ids | missing_ids | button_ids):
             if cat not in seen:
                 seen.add(cat)
                 ordered.append(cat)
 
+        # sitemap にも SITEMAP_MISSING にも無く、親ページのボタンだけで見つかった新カテゴリ。
+        # 出たら SITEMAP_MISSING（と categories_fallback.json）にも追記しておくと sitemap 障害時にも拾える。
+        new_from_buttons = sorted(button_ids - seven_digit_ids - product_ids - missing_ids)
+        if new_from_buttons:
+            print(
+                f"::notice::[morimori] 親ページの機種ボタンのみで発見したカテゴリ "
+                f"{len(new_from_buttons)} 件: {','.join(new_from_buttons)}"
+                "（SITEMAP_MISSING への追記を推奨）",
+                flush=True,
+            )
+
         print(
             "  sitemap categories: "
             f"all={len(category_ids)}, seven_digit={len(seven_digit_ids)}, "
-            f"product={len(product_ids)}, target={len(ordered)}",
+            f"product={len(product_ids)}, buttons={len(button_ids)}, target={len(ordered)}",
             flush=True,
         )
         return ordered
+
+    def _discover_model_button_categories(self) -> set[str]:
+        """MODEL_BUTTON_PARENTS の親ページから機種ボタンの 7桁カテゴリを集める。
+
+        sitemap の補完なので取得に失敗しても例外にせず空集合で続行する
+        （403/429 だけは全体中断のため MorimoriBlockedError をそのまま上げる）。
+        """
+        found: set[str] = set()
+        for parent in MODEL_BUTTON_PARENTS:
+            try:
+                html = self._get_with_retries(f"{BASE_URL}/category/{parent}").text
+            except MorimoriBlockedError:
+                raise
+            except Exception as exc:
+                print(
+                    f"::warning::[morimori] 親ページ /category/{parent} の機種ボタン取得に失敗（{exc}）。"
+                    "sitemap 由来のカテゴリのみで続行します",
+                    flush=True,
+                )
+                continue
+            ids = set(re.findall(r'data-id="(\d{7})"', html))
+            print(f"  model buttons /category/{parent}: {len(ids)}", flush=True)
+            found |= ids
+        return found
 
     def _load_fallback_categories(self) -> list[str]:
         """sitemap が取れないときのカテゴリ一覧スナップショットを読む。
