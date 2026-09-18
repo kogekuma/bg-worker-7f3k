@@ -4,6 +4,14 @@
   - 1ページ目: POST /        form データでカテゴリを指定
   - 2ページ目以降: POST /G01_ProdutShow/Index/{page}  同じ form データ
   - ページ数: #bootstrappager の data-pagecount 属性
+
+JAN 解決順（Scanner 46332a3 の移植・2026-09-18）:
+  ① サイト掲載の実 JAN
+  ② JAN 非掲載の iPhone（色なし「機種+容量」名）は product_jan_groups.IPHONE_JAN_GROUPS
+     （mobile_mix の JAN_MAP から導出した「機種+容量 → 全色 JAN」）へ同一価格で展開
+  ③ どちらも無ければ従来の擬似 JAN（00 + MD5）
+  ②が無いと iPhone 18 系のように発売直後で JAN 未掲載の主力機種が擬似 JAN のまま
+  他店と比較できない（本番で 8 件がそうなっていた）。
 """
 
 import hashlib
@@ -21,6 +29,29 @@ from scrapers.mobile_ichiban.config import (
     SITE_ID, SITE_NAME, BASE_URL,
     REQUEST_DELAY_MIN, REQUEST_DELAY_MAX, MAX_WORKERS, CAT_IDS,
 )
+from scrapers.product_jan_groups import IPHONE_JAN_GROUPS
+
+
+# 「機種+容量」（先頭から容量トークンまで・色は含まない）を照合キーとして切り出す
+_MODEL_CAPACITY_RE = re.compile(r"^(.*?\b\d+(?:GB|TB))\b")
+
+
+def _normalize_name(name: str) -> str:
+    """JAN グループ照合用に商品名の空白表記を正規化する。
+
+    全角スペースを半角化し、連続空白を1個に詰め、"iPhone 17" の iPhone 直後の空白を
+    除去して mobile_mix の JAN_MAP キー形式（"iPhone17 Pro Max 256GB"）に揃える。
+    """
+    name = name.replace("　", " ")
+    name = re.sub(r"\s+", " ", name).strip()
+    name = re.sub(r"\biPhone\s+(\d)", r"iPhone\1", name)
+    return name
+
+
+def _model_capacity_key(name: str) -> str | None:
+    """商品名から「機種+容量」の照合キーを抽出する（取れなければ None）。"""
+    match = _MODEL_CAPACITY_RE.search(_normalize_name(name))
+    return match.group(1).strip() if match else None
 
 # 接続失敗時のリトライ設定
 CONNECT_RETRY = 3          # 最大リトライ回数
@@ -99,16 +130,27 @@ class MobileIchibanScraper(BaseScraper):
                 jan_str = re.sub(r"[^0-9]", "", jan_raw.upper().replace("JAN", "").replace(":", ""))
                 jan = extract_jan(jan_str)
 
-                if not jan and name:
-                    jan = _pseudo_jan(name)
+                # ① 実 JAN → ② iPhone グループ全色へ展開 → ③ 擬似 JAN
+                if jan:
+                    resolved_jans = [jan]
+                else:
+                    model_capacity = _model_capacity_key(name) if name else None
+                    jan_group = IPHONE_JAN_GROUPS.get(model_capacity) if model_capacity else None
+                    if jan_group:
+                        resolved_jans = sorted(jan_group)
+                    elif name:
+                        resolved_jans = [_pseudo_jan(name)]
+                    else:
+                        resolved_jans = []
             else:
                 continue
 
-            if not jan or not name or not price:
+            if not resolved_jans or not name or not price:
                 continue
 
             url = f"{BASE_URL}/Prod/{cat_id}"
-            items.append((jan, name, price, url))
+            for resolved_jan in resolved_jans:
+                items.append((resolved_jan, name, price, url))
         return items
 
     def _scan_category(self, cat_id: str, cat_name: str,
