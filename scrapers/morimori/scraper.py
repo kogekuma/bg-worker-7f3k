@@ -96,6 +96,8 @@ class MorimoriScraper(BaseScraper):
         # 打ち切られ deadline_hit が立つ。ハードタイムアウトによる全損を防ぐための安全弁。
         self.deadline = None
         self.deadline_hit = False
+        # 直近の _discover_categories がどこから一覧を得たか（"sitemap" / "fallback"）
+        self.discovery_source = None
 
     def past_deadline(self) -> bool:
         """走査予算を超過していれば True（超過を記録する）。"""
@@ -184,6 +186,7 @@ class MorimoriScraper(BaseScraper):
                 f"categories_fallback.json の {len(fallback)} 件で継続します",
                 flush=True,
             )
+            self.discovery_source = "fallback"
             # スナップショットに無い新機種を落とさないよう、親ページのボタン由来も足す
             return sorted(set(fallback) | self._discover_model_button_categories())
 
@@ -217,6 +220,7 @@ class MorimoriScraper(BaseScraper):
             f"product={len(product_ids)}, buttons={len(button_ids)}, target={len(ordered)}",
             flush=True,
         )
+        self.discovery_source = "sitemap"
         return ordered
 
     def _discover_model_button_categories(self) -> set[str]:
@@ -326,6 +330,12 @@ class MorimoriScraper(BaseScraper):
                 merge_into_results(results, jan, name, price, url)
         return len(items)
 
+    @staticmethod
+    def _last_page_from_html(text: str) -> int:
+        """ページ1の HTML のページネーションリンク（?page=N）の最大値＝最終ページ。無ければ1。"""
+        pages = [int(m) for m in re.findall(r"[?&]page=(\d+)", text)]
+        return max(pages) if pages else 1
+
     def _get_last_page(self, cat_id: str) -> int:
         """カテゴリの最終ページ番号を返す（ページ1のページネーションリンクから）。
 
@@ -333,8 +343,7 @@ class MorimoriScraper(BaseScraper):
         その最大値を最終ページとみなす。リンクが無ければ1ページ（単一ページ）。
         """
         resp = self._get_with_retries(f"{BASE_URL}/category/{cat_id}")
-        pages = [int(m) for m in re.findall(r"[?&]page=(\d+)", resp.text)]
-        return max(pages) if pages else 1
+        return self._last_page_from_html(resp.text)
 
     def _scan_category_pages(
         self,
@@ -343,6 +352,8 @@ class MorimoriScraper(BaseScraper):
         lock: threading.Lock,
         page_start: int = 1,
         page_step: int = 1,
+        known_last_page: int | None = None,
+        last_page_sink: dict | None = None,
     ):
         """カテゴリのページを page_start から page_step 間隔で走査して results にマージする。
 
@@ -352,6 +363,12 @@ class MorimoriScraper(BaseScraper):
             スキップする（取りこぼしは次回以降の増分マージで回収される）。
             ※ 空ページで止めると、深いページが一時的に0件を返したときにカテゴリ後半を
               まるごと取りこぼすため、終端を事前確定する方式にしている。
+            最終ページの決め方（2026-09-29〜。40シャードが各自ページ1を取り直す重複の解消）:
+              - page_start == 1 のシャード: 走査対象のページ1の HTML から読む（追加取得なし）。
+                読んだ値は last_page_sink に入れ、次回の計画（run_morimori.py）に渡す。
+              - known_last_page（前回の計画）があるシャード: それを使い、ページが増えた場合に
+                備えて「最終ページ＋1」まで走査する（範囲外なら0件のページを1回取るだけ）。
+              - どちらも無ければ従来どおりページ1を取って確定する。
         """
         if page_step == 1:
             page = page_start
@@ -381,15 +398,37 @@ class MorimoriScraper(BaseScraper):
             return
 
         # ストライド走査: 終端ページを先に確定してから既知範囲のみ走査する
-        try:
-            last_page = self._get_last_page(cat_id)
-        except MorimoriBlockedError:
-            raise
-        except Exception as exc:
-            print(f"  [morimori] {cat_id} last-page detection failed: {exc}", flush=True)
-            return
+        first_page = page_start
+        if page_start == 1:
+            # ページ1はこのシャードの担当ページでもあるので、1回の取得で終端と商品を両方読む
+            if self.past_deadline():
+                print(f"  [morimori] {cat_id} page=1 以降を予算超過で打ち切り", flush=True)
+                return
+            try:
+                resp = self._get_with_retries(f"{BASE_URL}/category/{cat_id}")
+            except MorimoriBlockedError:
+                raise
+            except Exception as exc:
+                print(f"  [morimori] {cat_id} last-page detection failed: {exc}", flush=True)
+                return
+            last_page = self._last_page_from_html(resp.text)
+            if last_page_sink is not None:
+                last_page_sink[cat_id] = last_page
+            n_items = self._parse_items(resp, cat_id, results, lock)
+            print(f"  [morimori] {cat_id} page=1 ({n_items} items)", flush=True)
+            first_page = 1 + page_step
+        elif known_last_page:
+            last_page = known_last_page + 1
+        else:
+            try:
+                last_page = self._get_last_page(cat_id)
+            except MorimoriBlockedError:
+                raise
+            except Exception as exc:
+                print(f"  [morimori] {cat_id} last-page detection failed: {exc}", flush=True)
+                return
 
-        for page in range(page_start, last_page + 1, page_step):
+        for page in range(first_page, last_page + 1, page_step):
             if self._abort_event.is_set():
                 break
             if self.past_deadline():

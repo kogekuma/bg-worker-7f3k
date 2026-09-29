@@ -65,6 +65,49 @@ BIG_CATEGORIES = {
     "0303002", "0204001",
 }
 
+# 走査計画（2026-09-29〜）: カテゴリ一覧と BIG カテゴリの最終ページ数。
+# 従来は 40 シャードが毎回それぞれ sitemap.xml ＋ 親ページ＋ BIG 62 カテゴリのページ1を取り直していた
+# （1周期で約2,500リクエスト。実測で shard 6 はジョブ 3.8分のうち 155秒がこの確認だけ）。
+#   - 作る: ページ1を担当する leaf-A の shard 0 が、走査のついでに最終ページを読み（追加取得なし）、
+#           sitemap からカテゴリ一覧を作り直して PLAN_OUT_PATH に書く。
+#           ワークフローが actions/cache に保存する（キー morimori-plan-<run_id>）。
+#   - 使う: 他のシャードは直近の計画を actions/cache から PLAN_PATH に復元し、sitemap と
+#           ページ1の確認を省く。最終ページは「計画の値＋1」まで走査する（ページ増に備える）。
+#   - 計画が無い・壊れている・PLAN_MAX_AGE_H より古いときは従来どおり各シャードで求める。
+# 同じ run の全シャードが同じカテゴリ一覧で stride 分割するので、担当のずれも起きにくくなる。
+PLAN_PATH = "morimori_plan.json"
+PLAN_OUT_PATH = "morimori_plan_out.json"
+PLAN_MAX_AGE_H = float(os.environ.get("MORIMORI_PLAN_MAX_AGE_H", "3"))
+
+
+def load_plan() -> dict | None:
+    """有効な走査計画を読む。使えなければ理由を出して None。"""
+    try:
+        with open(PLAN_PATH, encoding="utf-8") as f:
+            plan = json.load(f)
+    except FileNotFoundError:
+        print("  [morimori] 走査計画なし → 各シャードで sitemap とページ1から求める", flush=True)
+        return None
+    except Exception as exc:
+        print(f"::warning::[morimori] 走査計画を読めません（{exc}）→ 従来方式で継続", flush=True)
+        return None
+
+    age_h = (time.time() - float(plan.get("created_at", 0))) / 3600
+    if not plan.get("categories") or age_h > PLAN_MAX_AGE_H:
+        print(
+            f"  [morimori] 走査計画が使えない（{age_h:.1f}時間前・カテゴリ {len(plan.get('categories') or [])} 件）"
+            " → 従来方式で継続",
+            flush=True,
+        )
+        return None
+    print(
+        f"  [morimori] 走査計画を使用: {age_h * 60:.0f}分前・カテゴリ {len(plan['categories'])} 件・"
+        f"最終ページ既知 {len(plan.get('last_pages') or {})} 件",
+        flush=True,
+    )
+    return plan
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--shard",        type=int, default=0, help="このジョブのシャード番号（0始まり）")
 parser.add_argument("--total-shards", type=int, default=1, help="シャード総数")
@@ -87,13 +130,32 @@ if stagger:
     print(f"[morimori leaf shard {args.shard}] 起動を {stagger:.0f} 秒ずらします", flush=True)
     time.sleep(stagger)
 
-# sitemap から全カテゴリを発見し、除外カテゴリ（cat99・冗長集約05）を外す。
+# 全カテゴリ（走査計画があればその一覧、無ければ sitemap から発見）から除外カテゴリ
+# （cat99・冗長集約05 等）を外す。
 # _discover_categories は SITEMAP_MISSING を必ず union するため、SITEMAP カテゴリも
 # all_cats に含まれる。よって小さい SITEMAP カテゴリは通常 stride で、大きいもの
 # （0104002/0104003 等）は BIG のページ分散で自然にカバーされる。
 # （旧実装は SITEMAP を全シャードで別途フル走査しており、大 SITEMAP カテゴリを
 #   各シャードで全走査＋BIGで二重走査してタイムアウトの主因になっていた）
-all_cats   = [c for c in scraper._discover_categories() if c not in EXCLUDE_FROM_LEAF]
+# ページ1を担当するシャード（shard 0）が次回の走査計画を作る。
+is_planner = args.shard == 0
+plan = load_plan()
+if plan:
+    discovered = list(plan["categories"])
+    known_last_pages = {cat: int(n) for cat, n in (plan.get("last_pages") or {}).items()}
+    next_categories = discovered
+    if is_planner:
+        # 次回の計画用に一覧を作り直す。今回の分担は他シャードと揃えるため計画の一覧のまま。
+        fresh = scraper._discover_categories()
+        if scraper.discovery_source == "sitemap":
+            next_categories = fresh
+else:
+    discovered = scraper._discover_categories()
+    known_last_pages = {}
+    next_categories = discovered
+last_page_sink: dict[str, int] = {}
+
+all_cats   = [c for c in discovered if c not in EXCLUDE_FROM_LEAF]
 big_set    = {c for c in BIG_CATEGORIES if c in all_cats}
 
 # 通常カテゴリ（大カテゴリ以外・小 SITEMAP を含む）を stride 分割
@@ -132,6 +194,8 @@ try:
         scraper._scan_category_pages(
             cat_id, results, lock,
             page_start=args.shard + 1, page_step=args.total_shards,
+            known_last_page=known_last_pages.get(cat_id),
+            last_page_sink=last_page_sink,
         )
 except Exception as exc:
     # 403/429 ブロックや致命的エラー時は非ゼロ終了し、このシャードを失敗扱いにする。
@@ -165,6 +229,22 @@ output = {
     "partial": partial,
     "items":   results,
 }
+
+if is_planner:
+    # 読めなかった（予算超過で未走査の）カテゴリは前回の値を引き継ぐ
+    next_plan = {
+        "created_at": time.time(),
+        "created_by": f"leaf shard {args.shard}",
+        "categories": next_categories,
+        "last_pages": {**known_last_pages, **last_page_sink},
+    }
+    with open(PLAN_OUT_PATH, "w", encoding="utf-8") as f:
+        json.dump(next_plan, f, ensure_ascii=False, separators=(",", ":"))
+    print(
+        f"→ {PLAN_OUT_PATH} に次回の走査計画を保存（カテゴリ {len(next_categories)} 件・"
+        f"最終ページ 今回読んだ {len(last_page_sink)} 件 / 計 {len(next_plan['last_pages'])} 件）",
+        flush=True,
+    )
 
 filename = f"morimori_shard_{args.shard}.json"
 with open(filename, "w", encoding="utf-8") as f:

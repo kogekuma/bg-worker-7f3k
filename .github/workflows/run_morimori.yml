@@ -39,8 +39,32 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      # 走査計画（カテゴリ一覧＋大カテゴリの最終ページ数）。前回の leaf-A shard 0 が作ったもの。
+      # 無くても run_morimori.py が従来どおり sitemap とページ1から求めるので失敗扱いにしない。
+      - name: Restore morimori scan plan
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: morimori_plan.json
+          key: morimori-plan-${{ github.run_id }}
+          restore-keys: morimori-plan-
+
       - name: Run morimori leaf shard ${{ matrix.shard }}
         run: python run_morimori.py --shard ${{ matrix.shard }} --total-shards 40
+
+      # shard 0（ページ1担当）が作った次回の走査計画を保存する（leaf-B と次回の leaf-A が使う）
+      - name: Stage scan plan (shard 0)
+        id: plan
+        if: matrix.shard == 0 && hashFiles('morimori_plan_out.json') != ''
+        run: mv -f morimori_plan_out.json morimori_plan.json
+
+      - name: Save morimori scan plan (shard 0)
+        if: steps.plan.outcome == 'success'
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: morimori_plan.json
+          key: morimori-plan-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload shard artifact
         uses: actions/upload-artifact@v4

@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 venv/
 mobile_ichiban.json
+
+# morimori の走査計画（Actions 上で生成し actions/cache で受け渡す。ローカル試走の残骸を防ぐ）
+morimori_plan.json
+morimori_plan_out.json

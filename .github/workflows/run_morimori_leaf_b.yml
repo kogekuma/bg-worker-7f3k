@@ -35,6 +35,16 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      # 走査計画（カテゴリ一覧＋大カテゴリの最終ページ数）。leaf-A の shard 0 が作ったもの。
+      # 無くても run_morimori.py が従来どおり sitemap とページ1から求めるので失敗扱いにしない。
+      - name: Restore morimori scan plan
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: morimori_plan.json
+          key: morimori-plan-${{ github.run_id }}
+          restore-keys: morimori-plan-
+
       - name: Run morimori leaf shard ${{ matrix.shard }}
         run: python run_morimori.py --shard ${{ matrix.shard }} --total-shards 40
 
