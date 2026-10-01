@@ -29,7 +29,7 @@ from scrapers.mobile_ichiban.config import (
     SITE_ID, SITE_NAME, BASE_URL,
     REQUEST_DELAY_MIN, REQUEST_DELAY_MAX, MAX_WORKERS, CAT_IDS,
 )
-from scrapers.product_jan_groups import IPHONE_JAN_GROUPS
+from scrapers.product_jan_groups import IPHONE_JAN_GROUPS, IPHONE_JAN_COLORS
 
 
 # 「機種+容量」（先頭から容量トークンまで・色は含まない）を照合キーとして切り出す
@@ -70,6 +70,53 @@ def _parse_color_deduction(remarks: str) -> int:
     if not nums:
         return 0
     return max(int(n.replace(",", "")) for n in nums)
+
+
+def _parse_color_deductions(remarks: str) -> dict[str, int]:
+    """色別減額テキストを {色名: 減額額} にする（2026-10-01 追加）。
+
+    実際の書き方:
+      "シルバー -32000/\\nグレイシャー -27000/\\nブラック -26000" → 色ごとに別の額
+      "シルバー/グレイシャー/ブラック -22000"                → 3色とも 22000
+      "シルバー/グレイシャー -18000\\nブラック-11000"         → 改行区切りも混在
+    "/" と改行で区切り、額の付いていない色は次に出てくる額を共有する。
+    """
+    deductions: dict[str, int] = {}
+    pending: list[str] = []
+    for seg in re.split(r"[/／\n]", remarks or ""):
+        seg = seg.strip()
+        if not seg:
+            continue
+        m = re.search(r"[-−]\s*(\d[\d,]*)\s*円?$", seg)
+        if m:
+            amount = int(m.group(1).replace(",", ""))
+            for c in pending + [seg[:m.start()].strip()]:
+                if c:
+                    deductions[c] = amount
+            pending = []
+        else:
+            pending.append(seg)
+    return deductions
+
+
+def _group_prices(base_price: int, remarks: str, jans: list[str]) -> dict[str, int]:
+    """機種+容量グループの各 JAN に、その色の減額を当てた価格を返す（2026-10-01 追加）。
+
+    以前は注記の最大減額を全色に当てていたため、減額の無い色（例: バーガンディ 262,000）も
+    一番安い色の価格（230,000）で出ていた。色が分かる JAN は色ごとに、分からない JAN と
+    注記を色別に読み切れないときは従来どおり最大減額（安全側）にする。
+    """
+    per_color = _parse_color_deductions(remarks)
+    worst = _parse_color_deduction(remarks)
+    prices = {}
+    for jan in jans:
+        colors = IPHONE_JAN_COLORS.get(jan)
+        if not colors or (worst and not per_color):
+            prices[jan] = max(base_price - worst, 0)
+            continue
+        hits = [amt for c, amt in per_color.items() if any(c in col or col in c for col in colors)]
+        prices[jan] = max(base_price - (max(hits) if hits else 0), 0)
+    return prices
 
 
 class MobileIchibanScraper(BaseScraper):
@@ -117,10 +164,13 @@ class MobileIchibanScraper(BaseScraper):
 
             if card:
                 remarks_el = card.select_one("small.my-prod-remarks")
-                if remarks_el:
-                    deduction = _parse_color_deduction(remarks_el.get_text(strip=True))
-                    if deduction > 0:
-                        price = max(price - deduction, 0)
+                # 改行を残して取る（"シルバー -32000/\nグレイシャー -27000" の区切りに使う）
+                remarks = remarks_el.get_text("\n", strip=True) if remarks_el else ""
+                base_price = price
+                deduction = _parse_color_deduction(remarks)
+                if deduction > 0:
+                    price = max(price - deduction, 0)
+                group_prices: dict[str, int] = {}
 
                 name_el = card.select_one("label.hideText")
                 name = name_el.get("title", "").strip() if name_el else ""
@@ -138,6 +188,8 @@ class MobileIchibanScraper(BaseScraper):
                     jan_group = IPHONE_JAN_GROUPS.get(model_capacity) if model_capacity else None
                     if jan_group:
                         resolved_jans = sorted(jan_group)
+                        # 色の無い「機種+容量」名なので、注記の色別減額を JAN ごとに当てる
+                        group_prices = _group_prices(base_price, remarks, resolved_jans)
                     elif name:
                         resolved_jans = [_pseudo_jan(name)]
                     else:
@@ -150,7 +202,7 @@ class MobileIchibanScraper(BaseScraper):
 
             url = f"{BASE_URL}/Prod/{cat_id}"
             for resolved_jan in resolved_jans:
-                items.append((resolved_jan, name, price, url))
+                items.append((resolved_jan, name, group_prices.get(resolved_jan, price), url))
         return items
 
     def _scan_category(self, cat_id: str, cat_name: str,
