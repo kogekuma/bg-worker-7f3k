@@ -1,0 +1,22 @@
+name: Probe pastec (Debug)
+
+# pastec.net（モバステ）が GitHub Actions の IP から取得できるかの確認用（2026-10-01）。
+# VPS(49.212.197.20) は 2026-09-28 から CloudFront で IP ごと 403 になったため、移設前に検証する。
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe
+        run: |
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+          echo "runner IP: $(curl -s https://api.ipify.org)"
+          for p in / /robots.txt /iphone /ipad; do
+            printf '%-12s ' "$p"
+            curl -s -o page.html -w '%{http_code} %{size_download}B\n' -A "$UA" -H "Accept-Language: ja" "https://pastec.net$p"
+            sleep 2
+          done
+          grep -c 'js-targetStorage' page.html || true
