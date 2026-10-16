@@ -287,7 +287,10 @@ class MorimoriScraper(BaseScraper):
     def _parse_items(self, resp, cat_id: str, results: dict, lock: threading.Lock) -> int:
         """1ページの HTML から新品商品を抽出して results にマージし、商品数を返す。"""
         soup = BeautifulSoup(resp.text, "html.parser")
-        items = soup.select(".product-item")
+        rows = soup.select("div.mm1551-prow")
+        if rows:
+            return self._parse_rows_v2(rows, cat_id, results, lock)
+        items = soup.select(".product-item")   # 2026-10-08 以前の旧デザイン（予備）
         if not items:
             return 0
 
@@ -329,6 +332,50 @@ class MorimoriScraper(BaseScraper):
             with lock:
                 merge_into_results(results, jan, name, price, url)
         return len(items)
+
+    @staticmethod
+    def parse_rows_v2(rows, cat_id: str) -> list[tuple[str, str, int, str]]:
+        """新デザイン（2026-10-08 頃〜）の商品行から (jan, name, price, url) を作る。
+
+        1 商品 = <div class="mm1551-prow" data-mm1551-product-id=... data-cond-new-price="229000" ...>
+          - data-cond-new-price … 新品の通常買取価格（表示の「現在価格」と同じ値）。
+                                   中古のみ・価格非表示（data-price-disp-flg="1"）の行には無い → 採らない
+          - .mm1551-prow__meta  … "256GB シルバー SIMフリー ／ JAN:4549995734591"
+          - .mm1551-prow__name a … 商品名と商品ページへのリンク
+        旧デザイン（.product-item）は 10-08 頃に全カテゴリで廃止され、以後 0 件のまま
+        増分マージが前回データを持ち越していた（10-16 に発覚・価格が約8日止まっていた）。
+        """
+        items = []
+        for row in rows:
+            raw_price = row.get("data-cond-new-price")
+            if not raw_price:
+                continue
+            try:
+                price = int(raw_price)
+            except ValueError:
+                continue
+            if price <= 0:
+                continue
+            meta = row.select_one(".mm1551-prow__meta")
+            m = re.search(r"JAN[:：]\s*(\d{8,14})", meta.get_text(" ", strip=True)) if meta else None
+            jan = extract_jan(m.group(1)) if m else None
+            if not jan:
+                continue
+            # morimori は EAN-13（先頭 0）を 12桁で表示するため補完する。
+            if len(jan) == 12:
+                jan = "0" + jan
+            link = row.select_one(".mm1551-prow__name a")
+            name = " ".join(link.get_text(" ", strip=True).split()) if link else ""
+            url = BASE_URL + link["href"] if link and link.get("href") else f"{BASE_URL}/category/{cat_id}"
+            items.append((jan, name, price, url))
+        return items
+
+    def _parse_rows_v2(self, rows, cat_id: str, results: dict, lock: threading.Lock) -> int:
+        """新デザインの行を results にマージし、行数（中古・価格非表示を含む）を返す。"""
+        for jan, name, price, url in self.parse_rows_v2(rows, cat_id):
+            with lock:
+                merge_into_results(results, jan, name, price, url)
+        return len(rows)
 
     @staticmethod
     def _last_page_from_html(text: str) -> int:

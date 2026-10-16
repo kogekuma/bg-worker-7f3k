@@ -95,6 +95,15 @@ if partial_shards:
     print(f"::warning::[merge:{args.scope}] 予算超過で部分取得のシャード {len(partial_shards)} 本: "
           f"{partial_shards}", flush=True)
 
+# 全シャードが 0 件＝サイトの HTML 変更などで何も読めていない。
+# ここで書き出すと updated だけ進んで前回データが「最新」に見え、鮮度監視も気づかない
+# （2026-10-08〜16 に実際に起きた: 一覧のデザイン刷新で全件 0 件のまま約8日間価格が止まった）。
+# 書き出さずに失敗終了し、run を赤にする（updated が進まないので VPS の鮮度監視も通知する）。
+if not shard_merged:
+    print(f"::error::[merge:{args.scope}] 全シャードで 0 件。サイト側の変更を疑ってください"
+          f"（morimori.json は更新しません）", flush=True)
+    raise SystemExit(1)
+
 # Step 3: 今回 scope の結果でベースを上書き。
 # 今回スクレイプできた JAN は「現在の買取価格」なので、値下げでも fresh を無条件採用する。
 # （最高値保持にすると価格が下がったときに永久に古い高値が残り続けるバグになる。

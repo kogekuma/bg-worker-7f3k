@@ -54,7 +54,7 @@ print(f"\nプローブ候補: {len(PROBE_CATS)}件", flush=True)
 for cat in PROBE_CATS:
     try:
         r = session.get(f"{BASE_URL}/category/{cat}", timeout=15)
-        items = re.findall(r'class="product-item"', r.text)
+        items = re.findall(r'class="(?:product-item|mm1551-prow)"', r.text)  # 2026-10 の新デザインは mm1551-prow
         if r.ok and items:
             title = re.search(r'<title>([^<]+)', r.text)
             title_text = title.group(1) if title else "(タイトルなし)"

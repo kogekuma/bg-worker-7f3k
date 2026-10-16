@@ -18,7 +18,8 @@ GLOBAL_MIN_INTERVAL_MIN = 2.0
 GLOBAL_MIN_INTERVAL_MAX = 3.0
 
 # 1ページあたりの商品数上限（この件数未満 = 最終ページ判定に使用）
-PAGE_SIZE   = 10
+# 2026-10-08 頃のサイト刷新で 10 → 50 件/ページになった。
+PAGE_SIZE   = 50
 
 # scrape() の並列ワーカー数（run_morimori.py は直列のため未使用）
 MAX_WORKERS = 2

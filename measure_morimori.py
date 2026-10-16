@@ -48,7 +48,7 @@ def main():
             print(f"  page={page}: ERROR {exc}", flush=True)
             continue
 
-        n_items = len(BeautifulSoup(resp.text, "html.parser").select(".product-item"))
+        n_items = len(BeautifulSoup(resp.text, "html.parser").select(".product-item, div.mm1551-prow"))  # 新旧デザイン
         size_kb = len(resp.content) / 1024
         # 商品ありページのみ集計（空ページは判定対象外）
         if n_items > 0:
