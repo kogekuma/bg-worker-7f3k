@@ -2,7 +2,10 @@
 
 サイト構造（POST ベースのページネーション）:
   - 1ページ目: POST /        form データでカテゴリを指定
-  - 2ページ目以降: POST /G01_ProdutShow/Index/{page}  同じ form データ
+  - 2ページ目以降: #bootstrappager の data-urlformat
+    （例 "/G01_ProdutShow/Index/__id__?fromPager=<token>"）の __id__ をページ番号にして同じ form データで POST。
+    2026-10-08 頃から ?fromPager= が必須になり、固定 URL /G01_ProdutShow/Index/{page} は 404 になった
+    （約9日間、各カテゴリ1ページ目＝2,620 → 140 件のまま気づかなかった）。
   - ページ数: #bootstrappager の data-pagecount 属性
 
 JAN 解決順（Scanner 46332a3 の移植・2026-09-18）:
@@ -23,7 +26,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from bs4 import BeautifulSoup
 
-from scrapers.base import BaseScraper
+from scrapers.base import BaseScraper, CHROME_HEADERS
 from scrapers.common import extract_jan, extract_price, merge_into_results
 from scrapers.mobile_ichiban.config import (
     SITE_ID, SITE_NAME, BASE_URL,
@@ -225,6 +228,10 @@ class MobileIchibanScraper(BaseScraper):
         soup = BeautifulSoup(resp.text, "html.parser")
         pager = soup.select_one("#bootstrappager")
         max_page = int(pager.get("data-pagecount", 1)) if pager else 1
+        # 2ページ目以降の URL はページャが持つ書式に従う（トークン付き。無ければ旧形式）
+        url_format = (pager.get("data-urlformat") if pager else "") or "/G01_ProdutShow/Index/__id__"
+        with lock:
+            self.pages_total += max_page
 
         items = self._parse_page(soup, cat_id)
         with lock:
@@ -235,14 +242,18 @@ class MobileIchibanScraper(BaseScraper):
 
         for page in range(2, max_page + 1):
             try:
-                resp = self.post(
-                    f"{BASE_URL}/G01_ProdutShow/Index/{page}",
+                # ページャのクリックと同じ Ajax 扱いの POST（Cookie はセッションで引き継ぐ）
+                resp = self.session.post(
+                    BASE_URL + url_format.replace("__id__", str(page)),
                     data=base_data,
+                    headers={**CHROME_HEADERS, "X-Requested-With": "XMLHttpRequest"},
                     timeout=30,
                 )
                 resp.raise_for_status()
             except Exception as e:
                 print(f"  [mobile_ichiban] cat={cat_id} page={page} 失敗: {e}", flush=True)
+                with lock:
+                    self.pages_failed += 1
                 self._sleep()
                 continue
 
@@ -254,8 +265,11 @@ class MobileIchibanScraper(BaseScraper):
             self._sleep()
 
     def scrape(self) -> dict:
+        """全カテゴリを取得する。pages_total / pages_failed に取得ページの成否を残す（run.py の異常判定用）。"""
         results: dict = {}
         lock = threading.Lock()
+        self.pages_total = 0
+        self.pages_failed = 0
 
         cats = self._get_categories()
         if not cats:
@@ -273,5 +287,6 @@ class MobileIchibanScraper(BaseScraper):
                 if exc:
                     print(f"  [mobile_ichiban] cat={futures[future]} 例外: {exc}", flush=True)
 
-        print(f"[mobile_ichiban] 完了: {len(results)} JANs", flush=True)
+        print(f"[mobile_ichiban] 完了: {len(results)} JANs "
+              f"(ページ失敗 {self.pages_failed}/{self.pages_total})", flush=True)
         return results
