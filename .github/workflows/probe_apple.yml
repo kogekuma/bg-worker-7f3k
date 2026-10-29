@@ -1,27 +1,29 @@
-# Apple の受け取り在庫 API（/jp/shop/retail/pickup-message）を GitHub Actions から
-# 1分間隔で続けて取得できるかの確認用（手動実行のみ）。
-# 参考実装（bilune/apple-pickup-monitor）によると Apple はデータセンター IP に HTTP 541 を返す。
-# 本番のワークフローができたら削除する。
+# Apple の受け取り在庫 API を GitHub Actions から取得し続けられるかの確認用（2026-10-29〜）。
+# 1分間隔のループは約5分（30回）で HTTP 541 にブロックされたため、案A
+# 「起動ごとに新しいジョブ（＝新しい IP）で1回だけ取得」を 10 分ごとに数時間試す。
+# 結果はこのワークフローの実行履歴で見る（541 なら赤）。確認が済んだら削除する。
 name: Probe Apple pickup
 
 on:
+  schedule:
+    - cron: "*/10 * * * *"
   workflow_dispatch:
-    inputs:
-      minutes:
-        description: "ループを続ける分数"
-        default: "60"
+
+concurrency:
+  group: apple-probe
+  cancel-in-progress: false
 
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - name: Loop
+      - name: Once
         run: |
           curl -s https://api.ipify.org; echo
-          python run_apple_pickup.py --minutes "${{ github.event.inputs.minutes }}"
+          python run_apple_pickup.py --once
