@@ -1,24 +1,27 @@
-# Apple の受け取り在庫 API（/jp/shop/retail/pickup-message）が GitHub Actions の IP から使えるかの確認用。
-# 手動実行のみ。参考実装（bilune/apple-pickup-monitor）によると Apple はデータセンター IP に HTTP 541 を返す。
-# 確認が済んだら削除する。
+# Apple の受け取り在庫 API（/jp/shop/retail/pickup-message）を GitHub Actions から
+# 1分間隔で続けて取得できるかの確認用（手動実行のみ）。
+# 参考実装（bilune/apple-pickup-monitor）によると Apple はデータセンター IP に HTTP 541 を返す。
+# 本番のワークフローができたら削除する。
 name: Probe Apple pickup
 
 on:
   workflow_dispatch:
+    inputs:
+      minutes:
+        description: "ループを続ける分数"
+        default: "60"
 
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 350
     steps:
-      - name: Probe (3 requests, 60s apart)
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Loop
         run: |
-          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
-          URL="https://www.apple.com/jp/shop/retail/pickup-message?pl=true&location=104-0061&parts.0=MJR54J/A&parts.1=MJR64J/A"
           curl -s https://api.ipify.org; echo
-          for i in 1 2 3; do
-            code=$(curl -s -A "$UA" -H "Accept: application/json" -o out.json -w "%{http_code}" "$URL")
-            stores=$(python3 -c "import json;print(len(json.load(open('out.json')).get('body',{}).get('stores',[])))" 2>/dev/null || echo "-")
-            echo "try $i: HTTP $code / stores=$stores / $(wc -c < out.json) bytes"
-            [ "$i" -lt 3 ] && sleep 60
-          done
+          python run_apple_pickup.py --minutes "${{ github.event.inputs.minutes }}"
