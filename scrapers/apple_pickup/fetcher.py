@@ -2,8 +2,8 @@
 
 check_once() が全地点×型番の在庫を問い合わせ、店舗ごと・型番ごとの状態を返す。
 状態は Apple の pickupDisplay と pickupSearchQuote（「受け取れる日 今日」等の文言）から
-  today   … 今日受け取れる
-  later   … 明日以降なら受け取れる（文言に受け取り日が入る）
+  today   … 今日受け取れる（文言は「受け取れる日 本日」）
+  later   … 明日以降なら受け取れる（「受け取れる日 明日」「受け取れる日 11/2（月）」等）
   none    … 受け取れない（現在ご利用いただけません 等）
 の3つに分ける。文言は quote にそのまま残す（判定の見直し用）。
 """
@@ -32,7 +32,8 @@ def _state(info: dict) -> str:
     if info.get("pickupDisplay") != "available":
         return "none"
     quote = info.get("pickupSearchQuote") or ""
-    return "today" if "今日" in quote else "later"
+    # 当日の文言は「受け取れる日 本日」（2026-10-30 実測。「今日」ではない）
+    return "today" if ("本日" in quote or "今日" in quote) else "later"
 
 
 def _chunks(items: list, size: int):
