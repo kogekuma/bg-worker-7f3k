@@ -49,7 +49,8 @@ def send(payload: dict) -> None:
 def to_payload(res: dict) -> dict:
     """型番を JAN に置き換え、サイトが使う形にする。
 
-    {"checkedAt": ISO8601, "stores": {店番号: {"name": 店名, "items": {JAN: {"s": today|later|none, "q": 文言}}}}}
+    {"checkedAt": ISO8601, "names": {JAN: 商品名},
+     "stores": {店番号: {"name": 店名, "items": {JAN: {"s": today|later|none, "q": 文言}}}}}
     """
     stores = {}
     for number, st in res["stores"].items():
@@ -58,7 +59,8 @@ def to_payload(res: dict) -> dict:
             if part in PARTS:
                 items[PARTS[part][0]] = {"s": info["state"], "q": info["quote"]}
         stores[number] = {"name": st["name"], "items": items}
-    return {"checkedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"), "stores": stores}
+    names = {jan: name for jan, name in PARTS.values()}
+    return {"checkedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"), "names": names, "stores": stores}
 
 
 session = requests.Session()
