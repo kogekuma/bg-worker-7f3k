@@ -1,0 +1,47 @@
+# Apple Store の受け取り在庫（iPhone 18 Pro / 18 Pro Max / Duo × 国内11店舗）を1回取得し、
+# nedan. の API（POST /api/ingest/apple-stock）へ送る。
+#
+# 起動は VPS の cron から workflow_dispatch で10分ごと（GitHub の schedule は間引かれて一晩1回しか動かなかった）:
+#   */10 * * * * /home/ubuntu/trigger_gh.sh apple_pickup.yml >> /home/ubuntu/scanner/logs/apple_trigger.log 2>&1
+# 1回ごとに新しいジョブ（＝新しい IP）で1周だけ取る。同じ IP から1分ごとに続けると約5分で HTTP 541 に
+# ブロックされたが、この方式は 2026-10-30 の試験で20回連続で通った。
+#
+# 受け渡しの鍵 NEDAN_INGEST_KEY（nedan. 管理画面の「投稿用 API キー」）が Secrets に無ければ何もしない。
+# Apple がブロック応答（541 等）を返したら、サイトに「停止中」を伝えて失敗終了する（回避しない）。
+# Apple から削除要請が来たら、このワークフローごと消す（ユーザー方針・2026-10-29）。
+name: Apple Pickup Monitor
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: apple-pickup
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check key
+        id: key
+        env:
+          NEDAN_INGEST_KEY: ${{ secrets.NEDAN_INGEST_KEY }}
+        run: |
+          if [ -z "$NEDAN_INGEST_KEY" ]; then
+            echo "NEDAN_INGEST_KEY が未登録のためスキップ"
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.skip != '1'
+      - uses: actions/setup-python@v5
+        if: steps.key.outputs.skip != '1'
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+        if: steps.key.outputs.skip != '1'
+      - name: Check once and send
+        if: steps.key.outputs.skip != '1'
+        env:
+          NEDAN_INGEST_KEY: ${{ secrets.NEDAN_INGEST_KEY }}
+        run: python run_apple_pickup.py --once
