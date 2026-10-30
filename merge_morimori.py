@@ -13,13 +13,22 @@ leaf 走査（run_morimori.py）と cat99 走査（run_morimori_cat99.py）は�
   今回スクレイプできた JAN は現在価格なので、値下げでも fresh を無条件採用する
   （最高値保持だと値下げが永久に反映されず古い高値が固着するため）。
   leaf と cat99 の JAN は実測上ほぼ重複しないが、衝突時は今回 scope（fresh）を優先する。
+
+古いデータの掃除（2026-10-30〜）:
+  増分マージは消さないので、サイトから消えた・価格非表示（現在価格 ASK）になった商品の価格が
+  いつまでも残っていた（10-08 のデザイン刷新後、「[予約必須]」約7,000件が旧価格のまま＝全体の約4割）。
+  各商品に最後に取れた時刻 seen（UNIX 秒）を持たせ、STALE_DROP_HOURS 取れていない商品は落とす。
+  seen の無い旧データは今回の時刻を入れて猶予を与える（初回でいきなり消さない）。
+  leaf・cat99 とも30分ごとに全カテゴリを回るので、48時間はシャードの失敗が続いても消えない余裕がある。
 """
 
 import argparse
 import json
+import time
 from datetime import datetime, timezone, timedelta
 
 JST = timezone(timedelta(hours=9))
+STALE_DROP_HOURS = 48
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--base", help="既存 morimori.json のパス（フォールバックデータ）")
@@ -108,7 +117,20 @@ if not shard_merged:
 # 今回スクレイプできた JAN は「現在の買取価格」なので、値下げでも fresh を無条件採用する。
 # （最高値保持にすると価格が下がったときに永久に古い高値が残り続けるバグになる。
 #   未スクレイプの JAN＝もう一方の scope やキャンセルされたシャードの分は base のまま維持される。）
+now_ts = int(time.time())
+for item in shard_merged.values():
+    item["seen"] = now_ts
 merged.update(shard_merged)
+
+# 長く取れていない商品を落とす（seen の無い旧データは今回の時刻で猶予を与える）
+dropped = 0
+for jan in list(merged):
+    seen = merged[jan].setdefault("seen", now_ts)
+    if now_ts - seen > STALE_DROP_HOURS * 3600:
+        del merged[jan]
+        dropped += 1
+if dropped:
+    print(f"[merge:{args.scope}] {STALE_DROP_HOURS}時間取れていない {dropped} JANs を削除", flush=True)
 
 print(f"[merge:{args.scope}] {ok_shards}/{args.shards} シャード取り込み, "
       f"新規/更新 {len(shard_merged)} JANs, 合計 {len(merged)} JANs", flush=True)
