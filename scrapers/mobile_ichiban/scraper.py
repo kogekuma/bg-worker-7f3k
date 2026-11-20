@@ -75,6 +75,15 @@ def _parse_color_deduction(remarks: str) -> int:
     return max(int(n.replace(",", "")) for n in nums)
 
 
+# 注記で使われる1文字の色名 → JAN の色名に含まれる語（2026-11-20: iPhone 17 Pro の「青、橙-6000」）。
+# 照合は _group_prices の部分一致なので、「ブルー」はディープブルー・ミストブルーの両方に当たる
+# （同じ機種で「ブルー」を含む色は1つだけなので取り違えない）。
+_COLOR_ALIASES = {
+    "青": "ブルー", "橙": "オレンジ", "銀": "シルバー", "黒": "ブラック", "白": "ホワイト",
+    "金": "ゴールド", "紫": "パープル", "桃": "ピンク", "赤": "レッド", "緑": "グリーン", "灰": "グレー",
+}
+
+
 def _parse_color_deductions(remarks: str) -> dict[str, int]:
     """色別減額テキストを {色名: 減額額} にする（2026-10-01 追加）。
 
@@ -82,11 +91,14 @@ def _parse_color_deductions(remarks: str) -> dict[str, int]:
       "シルバー -32000/\\nグレイシャー -27000/\\nブラック -26000" → 色ごとに別の額
       "シルバー/グレイシャー/ブラック -22000"                → 3色とも 22000
       "シルバー/グレイシャー -18000\\nブラック-11000"         → 改行区切りも混在
-    "/" と改行で区切り、額の付いていない色は次に出てくる額を共有する。
+      "シルバー、ブラック-1000" / "シルバー -1000、バーガンディ -2000" → 「、」区切り（2026-11〜）
+      "青、橙-6000"                                          → 1文字の色名（_COLOR_ALIASES で読み替え）
+    "/"・「、」・改行で区切り、額の付いていない色は次に出てくる額を共有する。
+    「△-6000」の △ は色ではない（状態の注記）ので、どの色にも当たらず減額しない（従来どおり）。
     """
     deductions: dict[str, int] = {}
     pending: list[str] = []
-    for seg in re.split(r"[/／\n]", remarks or ""):
+    for seg in re.split(r"[/／、,，\n]", remarks or ""):
         seg = seg.strip()
         if not seg:
             continue
@@ -95,7 +107,7 @@ def _parse_color_deductions(remarks: str) -> dict[str, int]:
             amount = int(m.group(1).replace(",", ""))
             for c in pending + [seg[:m.start()].strip()]:
                 if c:
-                    deductions[c] = amount
+                    deductions[_COLOR_ALIASES.get(c, c)] = amount
             pending = []
         else:
             pending.append(seg)
